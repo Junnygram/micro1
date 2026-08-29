@@ -1,0 +1,33 @@
+# Go binary and build files
+/backend/bin/
+/backend/dist/
+backend/backend
+
+# Go dependency and coverage files
+*.out
+*.test
+*.prof
+
+# Node/Next.js files
+/frontend/node_modules/
+/frontend/.next/
+/frontend/out/
+/frontend/build/
+
+# IDE/OS garbage
+.DS_Store
+.vscode/
+.idea/
+
+# Environment and sensitive variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+*.key
+
+# Local test outputs and artifacts
+/data/tmp/
+/data/results/

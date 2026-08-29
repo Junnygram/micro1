@@ -1,0 +1,329 @@
+[
+  {
+    "id": "cand_1",
+    "name": "Olaleye Oyewunmi",
+    "email": "olaleye@example.com",
+    "role": "Senior Full-Stack Engineer (Go/Next.js)",
+    "github_username": "junnygram",
+    "resume": "Experienced Full-Stack Developer with expertise in Go, FastAPI, and Next.js. Created custom SQLite WAL database connection wrappers in Go for low-latency session caching. Built interactive analytics consoles in TypeScript/React using responsive CSS and scenario inputs. Active open-source contributor in the AI Agent space.",
+    "jd": "Must have: Strong expertise in Golang (interfaces, database/sql). Strong experience with Next.js/React. Experience with SQLite or embedded databases. Understanding of concurrent programming in Go.",
+    "github_repos": [
+      {
+        "name": "expense-insights",
+        "stars": 42,
+        "languages": ["Go", "HTML"],
+        "files": {
+          "main.go": "package main\nimport (\n\t\"database/sql\"\n\t\"log\"\n\t_ \"modernc.org/sqlite\"\n)\nfunc InitDB(path string) (*sql.DB, error) {\n\tdb, err := sql.Open(\"sqlite\", path)\n\tif err != nil { return nil, err }\n\t// Enable WAL mode for high performance\n\tif _, err := db.Exec(\"PRAGMA journal_mode=WAL;\"); err != nil {\n\t\tdb.Close()\n\t\treturn nil, err\n\t}\n\treturn db, nil\n}",
+          "db_test.go": "package main\nimport \"testing\"\nfunc TestInitDB(t *testing.T) {\n\tdb, err := InitDB(\":memory:\")\n\tif err != nil { t.Fatalf(\"failed to open db: %v\", err) }\n\tdefer db.Close()\n}"
+        }
+      },
+      {
+        "name": "ag-ui-adk-grounding-app",
+        "stars": 88,
+        "languages": ["TypeScript", "Python"],
+        "files": {
+          "src/app/page.tsx": "'use client';\nimport { useState } from 'react';\nexport default function Dashboard() {\n\tconst [weight, setWeight] = useState(50);\n\treturn (\n\t\t<div className=\"dashboard-card\">\n\t\t\t<h1>OPEC Sourcing Levers</h1>\n\t\t\t<input type=\"range\" value={weight} onChange={e => setWeight(Number(e.target.value))} />\n\t\t</div>\n\t);\n}"
+        }
+      }
+    ],
+    "proctoring_logs": [],
+    "expected_audit": [
+      {
+        "claim": "Created custom SQLite WAL database connection wrappers in Go",
+        "verdict": "verified",
+        "evidence": "expense-insights/main.go shows InitDB executing PRAGMA journal_mode=WAL"
+      },
+      {
+        "claim": "Built interactive analytics consoles in TypeScript/React using scenario inputs",
+        "verdict": "verified",
+        "evidence": "ag-ui-adk-grounding-app/src/app/page.tsx shows page component using state and range input levers"
+      }
+    ]
+  },
+  {
+    "id": "cand_2",
+    "name": "Alex Rivera",
+    "email": "alex@example.com",
+    "role": "DevOps & SRE Engineer",
+    "github_username": "riveradevops",
+    "resume": "DevOps Engineer with 5 years experience specializing in cloud infrastructure automation. Expert in writing multi-stage Docker builds, Kubernetes Helm charts, and automated Terraform workspaces for SRE pipelines.",
+    "jd": "Must have: Experience writing multi-stage Dockerfiles. Experience with Kubernetes manifest structuring. Infrastructure-as-code automation (Terraform).",
+    "github_repos": [
+      {
+        "name": "terraform-templates",
+        "stars": 1,
+        "languages": [],
+        "files": {
+          "README.md": "# Terraform Templates\nCustom workspaces for SRE. TODO: add tf files."
+        }
+      }
+    ],
+    "proctoring_logs": [
+      {
+        "timestamp": "02:15",
+        "event_type": "look_away",
+        "duration": 22,
+        "details": "Webcam eye-tracking flag: Candidate head rotated 45 degrees left, focus off screen for 22s while explaining Helm manifests."
+      }
+    ],
+    "expected_audit": [
+      {
+        "claim": "Expert in writing multi-stage Docker builds and Helm charts",
+        "verdict": "exaggerated",
+        "evidence": "No Dockerfiles or Kubernetes Helm templates found in candidate's repositories; only empty README files exist"
+      }
+    ]
+  },
+  {
+    "id": "cand_3",
+    "name": "Emily Chen",
+    "email": "emily@example.com",
+    "role": "Senior Frontend Developer",
+    "github_username": "emilycodes",
+    "resume": "Frontend engineer focusing on highly responsive user interfaces. Expert in React Hooks, Next.js App Router performance, and CSS Module animations. Built custom dashboard layouts with glassmorphic visuals.",
+    "jd": "Must have: Deep React Hooks knowledge. CSS styling (animations, layouts). Experience with Next.js App Router.",
+    "github_repos": [
+      {
+        "name": "glassmorphic-dashboard",
+        "stars": 54,
+        "languages": ["TypeScript", "CSS"],
+        "files": {
+          "src/styles/dashboard.module.css": ".glassCard {\n\tbackground: rgba(255, 255, 255, 0.05);\n\tbackdrop-filter: blur(10px);\n\tborder: 1px solid rgba(255, 255, 255, 0.1);\n\ttransition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);\n}\n.glassCard:hover {\n\ttransform: translateY(-2px);\n}",
+          "src/app/page.tsx": "import styles from '../styles/dashboard.module.css';\nexport default function Home() {\n\treturn <div className={styles.glassCard}>Metrics Dashboard</div>;\n}"
+        }
+      }
+    ],
+    "proctoring_logs": [],
+    "expected_audit": [
+      {
+        "claim": "Expert in CSS Module animations and glassmorphic layouts",
+        "verdict": "verified",
+        "evidence": "glassmorphic-dashboard/src/styles/dashboard.module.css contains .glassCard with backdrop-filter blur and hover transition"
+      }
+    ]
+  },
+  {
+    "id": "cand_4",
+    "name": "Raj Patel",
+    "email": "raj@example.com",
+    "role": "Golang Backend Developer",
+    "github_username": "rajconcurrency",
+    "resume": "High-performance Go developer. Expert in building thread-safe concurrent systems using sync.Mutex, Go channels, and worker pools for heavy background data ingestion.",
+    "jd": "Must have: Excellent knowledge of Go concurrency. Experience implementing thread-safe sync models. Experience with databases.",
+    "github_repos": [
+      {
+        "name": "concurrent-ingestor",
+        "stars": 12,
+        "languages": ["Go"],
+        "files": {
+          "ingest.go": "package ingest\n// BUG: This concurrent counter lacks Mutex locking, causing data races during concurrent ingestion\nvar Counter = 0\nfunc IngestData(items []string) {\n\tfor _, item := range items {\n\t\tgo func(data string) {\n\t\t\tCounter++\n\t\t}(item)\n\t}\n}"
+        }
+      }
+    ],
+    "proctoring_logs": [
+      {
+        "timestamp": "03:45",
+        "event_type": "tab_switch",
+        "duration": 15,
+        "details": "OS proctor flag: Browser tab blurred. Focus shifted to external browser window (15 seconds)."
+      },
+      {
+        "timestamp": "04:10",
+        "event_type": "tab_switch",
+        "duration": 25,
+        "details": "OS proctor flag: Browser tab blurred. Plagiarism checker noted paste of concurrent counter code containing bugs."
+      }
+    ],
+    "expected_audit": [
+      {
+        "claim": "Expert in building thread-safe concurrent systems using sync.Mutex",
+        "verdict": "failed",
+        "evidence": "concurrent-ingestor/ingest.go implements an asynchronous Counter increment gofunc without Mutex locking or channel sync, exposing a severe race condition"
+      }
+    ]
+  },
+  {
+    "id": "cand_5",
+    "name": "Sarah Jenkins",
+    "email": "sarah@example.com",
+    "role": "Data Scientist & ML Engineer",
+    "github_username": "sarahml",
+    "resume": "Machine learning specialist with deep expertise in neural network architectures. Created custom training loops in PyTorch for computer vision tasks and optimized weights convergence.",
+    "jd": "Must have: PyTorch or TensorFlow scripting. Understanding of ML training loops. Experience with data processing.",
+    "github_repos": [
+      {
+        "name": "ml-playgrounds",
+        "stars": 2,
+        "languages": ["Python"],
+        "files": {
+          "titanic.ipynb": "# Simple Titanic Classifier\n# Copied from beginner tutorial\nimport pandas as pd\n# No custom training loop or PyTorch architectures."
+        }
+      }
+    ],
+    "proctoring_logs": [
+      {
+        "timestamp": "05:12",
+        "event_type": "voice_detected",
+        "duration": 8,
+        "details": "Audio proctor flag: Secondary male voice detected in background reading neural net training explanations."
+      }
+    ],
+    "expected_audit": [
+      {
+        "claim": "Created custom training loops in PyTorch",
+        "verdict": "exaggerated",
+        "evidence": "ml-playgrounds contains only a beginner Pandas Titanic script. No PyTorch imports or custom training logic found"
+      }
+    ]
+  },
+  {
+    "id": "cand_6",
+    "name": "Michael Chang",
+    "email": "michael@example.com",
+    "role": "Full-Stack Node.js Developer",
+    "github_username": "mikecode",
+    "resume": "Full-Stack Engineer with experience building RESTful services in Node.js/Express. Familiar with relational and non-relational database transactions.",
+    "jd": "Must have: Node.js/Express. Familiarity with databases and REST architecture.",
+    "github_repos": [
+      {
+        "name": "express-auth",
+        "stars": 15,
+        "languages": ["JavaScript"],
+        "files": {
+          "server.js": "const express = require('express');\nconst app = express();\napp.use(express.json());\napp.post('/api/login', (req, res) => {\n\tconst { email, password } = req.body;\n\t// Simple mock credentials check\n\treturn res.json({ token: 'mock-jwt-token' });\n});\napp.listen(3000);"
+        }
+      }
+    ],
+    "proctoring_logs": [],
+    "expected_audit": [
+      {
+        "claim": "Familiar building RESTful services in Node.js/Express",
+        "verdict": "verified",
+        "evidence": "express-auth/server.js sets up a functional Express server with route parsing and a POST endpoint"
+      }
+    ]
+  },
+  {
+    "id": "cand_7",
+    "name": "Jessica Taylor",
+    "email": "jessica@example.com",
+    "role": "Cloud Infrastructure Engineer",
+    "github_username": "jesscloud",
+    "resume": "DevOps Engineer with experience writing structured Terraform modules to manage AWS ECS clusters and secure VPC subnets.",
+    "jd": "Must have: Terraform scripting experience. Basic AWS cloud concepts (VPC, security groups).",
+    "github_repos": [
+      {
+        "name": "aws-terraform-modules",
+        "stars": 28,
+        "languages": ["HCL"],
+        "files": {
+          "vpc.tf": "resource \"aws_vpc\" \"main\" {\n\tcidr_block = \"10.0.0.0/16\"\n\tenable_dns_hostnames = true\n}",
+          "security.tf": "resource \"aws_security_group\" \"web\" {\n\tvpc_id = aws_vpc.main.id\n\tingress {\n\t\tfrom_port = 80\n\t\tto_port = 80\n\t\tprotocol = \"tcp\"\n\t\tcidr_blocks = [\"0.0.0.0/0\"]\n\t}\n}"
+        }
+      }
+    ],
+    "proctoring_logs": [],
+    "expected_audit": [
+      {
+        "claim": "Experience writing structured Terraform modules for secure VPC subnets",
+        "verdict": "verified",
+        "evidence": "aws-terraform-modules/vpc.tf and security.tf define a valid AWS VPC resource and a matching web security group"
+      }
+    ]
+  },
+  {
+    "id": "cand_8",
+    "name": "David Kim",
+    "email": "david@example.com",
+    "role": "Security Engineer",
+    "github_username": "davidsecurity",
+    "resume": "Application security engineer focused on cryptography and authentication. Built user credentials authentication databases implementing secure hashing protocols for passwords.",
+    "jd": "Must have: Application security. Cryptography hashing knowledge. Database authorization.",
+    "github_repos": [
+      {
+        "name": "insecure-auth-demo",
+        "stars": 4,
+        "languages": ["Python"],
+        "files": {
+          "auth.py": "import hashlib\ndef register_user(username, password):\n\t# SECURITY VULNERABILITY: MD5 is insecure and prone to collision attacks\n\thashed_password = hashlib.md5(password.encode()).hexdigest()\n\tdb_save(username, hashed_password)"
+        }
+      }
+    ],
+    "proctoring_logs": [
+      {
+        "timestamp": "01:30",
+        "event_type": "tab_switch",
+        "duration": 35,
+        "details": "OS proctor flag: Plagiarism scanner noted clipboard paste of hash template from unverified third-party codebase."
+      }
+    ],
+    "expected_audit": [
+      {
+        "claim": "Built credentials databases implementing secure hashing protocols",
+        "verdict": "failed",
+        "evidence": "insecure-auth-demo/auth.py hashes passwords using MD5 which is insecure and highly vulnerable to collision and pre-image attacks"
+      }
+    ]
+  },
+  {
+    "id": "cand_9",
+    "name": "Amara Okafor",
+    "email": "amara@example.com",
+    "role": "Python Backend Developer",
+    "github_username": "amaracodes",
+    "resume": "Python Backend Engineer. Expert in building high-throughput FastAPI services utilizing asynchronous route handlers to optimize event loop concurrency.",
+    "jd": "Must have: Python backend development. Experience with FastAPI. Understanding of async/await async handlers.",
+    "github_repos": [
+      {
+        "name": "fastapi-starter",
+        "stars": 8,
+        "languages": ["Python"],
+        "files": {
+          "main.py": "import time\nfrom fastapi import FastAPI\napp = FastAPI()\n# BUG: route is declared async but performs blocking sleep, stalling the FastAPI event loop\n@app.get(\"/data\")\nasync def get_data():\n\ttime.sleep(5) \n\treturn {\"status\": \"ok\"}"
+        }
+      }
+    ],
+    "proctoring_logs": [
+      {
+        "timestamp": "04:05",
+        "event_type": "look_away",
+        "duration": 18,
+        "details": "Webcam eye-tracking flag: Candidate gaze locked on side-monitor for 18 seconds during async coding challenge."
+      }
+    ],
+    "expected_audit": [
+      {
+        "claim": "FastAPI services utilizing asynchronous route handlers to optimize event loop concurrency",
+        "verdict": "failed",
+        "evidence": "fastapi-starter/main.py uses time.sleep(5) (blocking) inside an async route handler, which blocks the single-threaded event loop instead of yielding with await asyncio.sleep"
+      }
+    ]
+  },
+  {
+    "id": "cand_10",
+    "name": "Carlos Gomez",
+    "email": "carlos@example.com",
+    "role": "Next.js Tailwind Developer",
+    "github_username": "carlosfront",
+    "resume": "Frontend designer specializing in landing page development using Tailwind CSS utilities and HTML5 layouts.",
+    "jd": "Must have: HTML5 layouts. Tailwind CSS utility class styling.",
+    "github_repos": [
+      {
+        "name": "landing-page",
+        "stars": 11,
+        "languages": ["HTML", "CSS"],
+        "files": {
+          "index.html": "<div class=\"min-h-screen bg-slate-900 flex items-center justify-center\">\n\t<h1 class=\"text-4xl font-extrabold text-cyan-400\">Tailwind Page</h1>\n</div>"
+        }
+      }
+    ],
+    "proctoring_logs": [],
+    "expected_audit": [
+      {
+        "claim": "Specializing in landing page development using Tailwind CSS utilities",
+        "verdict": "verified",
+        "evidence": "landing-page/index.html shows valid Tailwind CSS utility class attributes (bg-slate-900, text-cyan-400)"
+      }
+    ]
+  }
+]
