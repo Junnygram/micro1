@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 
 export default function LoginRegisterPage() {
 	const [isLogin, setIsLogin] = useState(true);
-	const [name, setName] = useState('');
-	const [email, setEmail] = useState('');
-	const [password, setPassword] = useState('');
+	const [name, setName] = useState('Acme Corp');
+	const [email, setEmail] = useState('demo@example.com');
+	const [password, setPassword] = useState('demo123');
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState('');
 	const router = useRouter();
@@ -17,9 +17,10 @@ export default function LoginRegisterPage() {
 		setError('');
 		setLoading(true);
 
+		const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 		const url = isLogin 
-			? 'http://localhost:8080/api/companies/login' 
-			: 'http://localhost:8080/api/companies/register';
+			? `${apiBase}/api/companies/login` 
+			: `${apiBase}/api/companies/register`;
 			
 		const payload = isLogin 
 			? { email, password }
@@ -68,6 +69,11 @@ export default function LoginRegisterPage() {
 						{error}
 					</div>
 				)}
+
+				<div style={{ padding: '1rem', background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: '0.5rem', marginBottom: '1.5rem', textAlign: 'center' }}>
+					<p style={{ margin: 0, fontSize: '0.85rem', color: '#e9d5ff', fontWeight: 600 }}>Demo Credentials Pre-filled</p>
+					<p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: '#d8b4fe' }}>Just click "{isLogin ? 'Sign In' : 'Create Account'}" to test the app.</p>
+				</div>
 
 				<form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 					{!isLogin && (

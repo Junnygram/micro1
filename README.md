@@ -23,6 +23,9 @@ ZaraSourcing uses a highly optimized, stateful architecture:
   - **Sourcing Levers Panel:** Sliders to adjust criteria weights (Open Source, Code Quality, Experience) that dynamically re-rank candidates on the fly via the Go database.
   - **Evidence Auditor Board:** Side-by-side cards linking the **Resume Claim** on the left to the **Verified GitHub File** and citation line numbers on the right.
   - **Live Audit Terminal:** Animated console displaying the agent's real-time thoughts and search/grep tool calls.
+  - **Real-Time Proctoring & Video Capture:** Simulated AI voice interview screening with gaze deviation monitoring using MediaPipe and MediaRecorder.
+  - **Central Troubleshooting Dashboard:** System diagnostic overview rendering live stats on CPU, Memory, API status, and LLM inference latencies.
+  - **Dynamic Application Flow:** Candidate application onboarding panel with drag-and-drop resume uploading.
 * **LLM Integration:** Direct REST requests to the Google Gemini API (`gemini-1.5-pro` model), maintaining state statelessly by rebuilding conversation history directly from SQLite logs on each turn.
 
 ---

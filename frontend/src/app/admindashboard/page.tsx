@@ -56,18 +56,23 @@ export default function AdminDashboard() {
 	const [newJobTitle, setNewJobTitle] = useState('');
 	const [newJobDesc, setNewJobDesc] = useState('');
 
-	const apiBase = 'http://localhost:8080';
+	const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
 	// Check local storage session on mount
 	useEffect(() => {
 		if (typeof window !== 'undefined') {
-			const auth = localStorage.getItem('company');
-			if (auth) {
-				const c = JSON.parse(auth);
-				setCompanyID(c.id);
-				setCompanyName(c.name);
-				setIsAuthenticated(true);
-			} else {
+			try {
+				const auth = localStorage.getItem('company');
+				if (auth) {
+					const c = JSON.parse(auth);
+					setCompanyID(c.id);
+					setCompanyName(c.name);
+					setIsAuthenticated(true);
+				} else {
+					window.location.href = '/login';
+				}
+			} catch {
+				localStorage.removeItem('company');
 				window.location.href = '/login';
 			}
 		}
@@ -161,7 +166,7 @@ export default function AdminDashboard() {
 		}
 	};
 
-	const handleCriteriaChange = async (key: keyof SourcingCriteria, value: any) => {
+	const handleCriteriaChange = async (key: keyof SourcingCriteria, value: number | string) => {
 		const updated = { ...criteria, [key]: value, company_id: companyID };
 		setCriteria(updated);
 		try {
@@ -235,6 +240,9 @@ export default function AdminDashboard() {
 					</div>
 				</div>
 				<div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+					<Link href="/troubleshooting" className="btn btn-secondary" style={{ fontSize: '0.85rem', padding: '0.5rem 1rem', background: 'rgba(99,102,241,0.1)', color: 'var(--color-accent)' }}>
+						System Analytics
+					</Link>
 					<Link href="/" className="btn btn-secondary" style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}>
 						Home Page
 					</Link>
@@ -428,10 +436,11 @@ export default function AdminDashboard() {
 							</p>
 						) : (
 							<div className="test-list">
-								{candidates.map((c) => (
+								{candidates.map((c, idx) => (
 									<div
 										key={c.id}
-										className={`test-item ${selectedCandidate?.id === c.id ? 'selected' : ''}`}
+										className={`test-item fade-in-up ${selectedCandidate?.id === c.id ? 'selected' : ''}`}
+										style={{ animationDelay: `${idx * 0.05}s` }}
 										onClick={() => setSelectedCandidate(c)}
 									>
 										<div className="test-info" style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>

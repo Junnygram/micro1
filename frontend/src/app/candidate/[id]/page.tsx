@@ -73,9 +73,13 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 	const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
 	const [answers, setAnswers] = useState<string[]>(['', '', '']);
 	const [interviewSubmitted, setInterviewSubmitted] = useState(false);
+	const [isListening, setIsListening] = useState(false);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const speechRecognitionRef = useRef<any>(null);
 
 	const terminalEndRef = useRef<HTMLDivElement>(null);
 	const webcamRef = useRef<HTMLVideoElement>(null);
+	const arCanvasRef = useRef<HTMLCanvasElement>(null);
 	const webcamStreamRef = useRef<MediaStream | null>(null);
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const faceLandmarkerRef = useRef<any>(null);
@@ -83,12 +87,13 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 	const lastAlertRef = useRef<number>(0);
 	const audioContextRef = useRef<AudioContext | null>(null);
 	const audioIntervalRef = useRef<number | null>(null);
+	const webcamActiveRef = useRef<boolean>(false); // stable ref to avoid stale closure in rAF loop
 
 	// MediaRecorder refs for session archiving
 	const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 	const recordedChunksRef = useRef<Blob[]>([]);
 
-	const apiBase = 'http://localhost:8080';
+	const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
 	// Hardcoded screening questions based on resume profiles
 	const interviewQuestions: InterviewQuestion[] = [
@@ -166,6 +171,7 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 				await webcamRef.current.play();
 			}
 			setWebcamActive(true);
+		webcamActiveRef.current = true;
 
 			// Initialize Web Audio API analyser
 			try {
@@ -259,7 +265,7 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 
 	const startDetectionLoop = () => {
 		const detect = () => {
-			if (!webcamRef.current || !faceLandmarkerRef.current || !webcamActive) return;
+			if (!webcamRef.current || !faceLandmarkerRef.current || !webcamActiveRef.current) return;
 			const video = webcamRef.current;
 			if (video.readyState < 2) {
 				animFrameRef.current = requestAnimationFrame(detect);
@@ -268,6 +274,14 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 
 			try {
 				const results = faceLandmarkerRef.current.detectForVideo(video, performance.now());
+				const canvas = arCanvasRef.current;
+				const ctx = canvas?.getContext('2d');
+				if (canvas && ctx) {
+					canvas.width = video.videoWidth;
+					canvas.height = video.videoHeight;
+					ctx.clearRect(0, 0, canvas.width, canvas.height);
+				}
+
 				if (!results.faceLandmarks || results.faceLandmarks.length === 0) {
 					setFaceStatus('no_face');
 					handleLookAway(true);
@@ -276,24 +290,67 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 					const noseTip = landmarks[1];
 					const leftEar = landmarks[234];
 					const rightEar = landmarks[454];
+					const topHead = landmarks[10];
+					const chin = landmarks[152];
 
 					const faceCenter = (leftEar.x + rightEar.x) / 2;
 					const faceWidth = Math.abs(rightEar.x - leftEar.x);
 					const noseOffset = Math.abs(noseTip.x - faceCenter);
 					const offsetRatio = noseOffset / (faceWidth || 0.1);
-
-					const topHead = landmarks[10];
-					const chin = landmarks[152];
 					const faceHeight = Math.abs(chin.y - topHead.y);
 					const vertCenter = (topHead.y + chin.y) / 2;
 					const vertOffset = Math.abs(noseTip.y - vertCenter) / (faceHeight || 0.1);
+					const isAway = offsetRatio > 0.35 || vertOffset > 0.45;
 
-					if (offsetRatio > 0.35 || vertOffset > 0.45) {
+					if (isAway) {
 						setFaceStatus('away');
 						handleLookAway(true);
 					} else {
 						setFaceStatus('looking');
 						handleLookAway(false);
+					}
+
+					// AR overlay
+					if (canvas && ctx) {
+						const w = canvas.width;
+						const h = canvas.height;
+						const alertColor = isAway ? '#ef4444' : '#10b981';
+
+						// Face mesh dots
+						ctx.fillStyle = isAway ? 'rgba(239,68,68,0.5)' : 'rgba(16,185,129,0.4)';
+						for (const lm of landmarks) {
+							ctx.beginPath();
+							ctx.arc(lm.x * w, lm.y * h, 1.2, 0, Math.PI * 2);
+							ctx.fill();
+						}
+
+						// Bounding box
+						const xs = landmarks.map((l: {x: number}) => l.x * w);
+						const ys = landmarks.map((l: {y: number}) => l.y * h);
+						const bx = Math.min(...xs) - 10;
+						const by = Math.min(...ys) - 10;
+						const bw = Math.max(...xs) - bx + 10;
+						const bh = Math.max(...ys) - by + 10;
+						ctx.strokeStyle = alertColor;
+						ctx.lineWidth = 1.5;
+						ctx.strokeRect(bx, by, bw, bh);
+
+						// Gaze direction arrow
+						const nx = noseTip.x * w;
+						const ny = noseTip.y * h;
+						const dx = (noseTip.x - faceCenter) * w * 3;
+						const dy = (noseTip.y - vertCenter) * h * 3;
+						ctx.beginPath();
+						ctx.moveTo(nx, ny);
+						ctx.lineTo(nx + dx, ny + dy);
+						ctx.strokeStyle = isAway ? '#f59e0b' : 'rgba(16,185,129,0.7)';
+						ctx.lineWidth = 2;
+						ctx.stroke();
+
+						// Status label
+						ctx.font = 'bold 11px monospace';
+						ctx.fillStyle = alertColor;
+						ctx.fillText(isAway ? 'GAZE DEVIATION' : 'LOCKED ON', bx, by - 6);
 					}
 				}
 			} catch {
@@ -352,9 +409,22 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 			webcamStreamRef.current.getTracks().forEach(t => t.stop());
 			webcamStreamRef.current = null;
 		}
+		// Clear AR canvas
+		const canvas = arCanvasRef.current;
+		if (canvas) {
+			const ctx = canvas.getContext('2d');
+			if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+		}
+		webcamActiveRef.current = false;
 		setWebcamActive(false);
 		setFaceStatus('no_face');
 		setAudioLevel(0);
+		// Stop speech recognition if active
+		if (speechRecognitionRef.current) {
+			try { speechRecognitionRef.current.stop(); } catch {}
+			speechRecognitionRef.current = null;
+		}
+		setIsListening(false);
 	};
 
 	// Active Tab-Blur Detector
@@ -407,6 +477,43 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 		fetchCandidateData();
 	};
 
+	const startSpeechRecognition = (questionIndex: number) => {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+		if (!SpeechRecognition) return;
+		if (speechRecognitionRef.current) {
+			try { speechRecognitionRef.current.stop(); } catch {}
+		}
+		const recognition = new SpeechRecognition();
+		recognition.continuous = true;
+		recognition.interimResults = true;
+		recognition.lang = 'en-US';
+		recognition.onresult = (event: any) => {
+			let transcript = '';
+			for (let i = event.resultIndex; i < event.results.length; i++) {
+				transcript += event.results[i][0].transcript;
+			}
+			setAnswers(prev => {
+				const next = [...prev];
+				next[questionIndex] = (next[questionIndex] ? next[questionIndex] + ' ' : '') + transcript;
+				return next;
+			});
+		};
+		recognition.onerror = () => setIsListening(false);
+		recognition.onend = () => setIsListening(false);
+		speechRecognitionRef.current = recognition;
+		recognition.start();
+		setIsListening(true);
+	};
+
+	const stopSpeechRecognition = () => {
+		if (speechRecognitionRef.current) {
+			try { speechRecognitionRef.current.stop(); } catch {}
+			speechRecognitionRef.current = null;
+		}
+		setIsListening(false);
+	};
+
 	const startInterview = async () => {
 		setInterviewActive(true);
 		setInterviewSubmitted(false);
@@ -445,16 +552,57 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 	};
 
 	useEffect(() => {
-		if (interviewActive && candidate && interviewQuestions[currentQuestionIndex]) {
-			let phrase = '';
-			if (currentQuestionIndex === 0 && !answers[0]) {
-				phrase = `Hi ${candidate.name.split(' ')[0]}, welcome to the ${candidate.role} Vetting Assessment. `;
-			}
-			phrase += `Question ${currentQuestionIndex + 1}: ${interviewQuestions[currentQuestionIndex].question}`;
-			speakText(phrase);
+		if (!interviewActive || !candidate || !interviewQuestions[currentQuestionIndex]) return;
+
+		// Stop any ongoing recognition before AI speaks
+		if (speechRecognitionRef.current) {
+			try { speechRecognitionRef.current.stop(); } catch {}
+			speechRecognitionRef.current = null;
 		}
+		setIsListening(false);
+
+		let phrase = '';
+		if (currentQuestionIndex === 0 && !answers[0]) {
+			phrase = `Hi ${candidate.name.split(' ')[0]}, welcome to the ${candidate.role} Vetting Assessment. `;
+		}
+		phrase += `Question ${currentQuestionIndex + 1}: ${interviewQuestions[currentQuestionIndex].question}`;
+
+		// Estimate how long Polly/TTS will take, then auto-start listening
+		const estimatedMs = Math.max(3000, phrase.length * 55);
+		const listenTimer = setTimeout(() => {
+			if (!interviewActive) return;
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+			if (!SR) return;
+			const recognition = new SR();
+			recognition.continuous = true;
+			recognition.interimResults = true;
+			recognition.lang = 'en-US';
+			const idx = currentQuestionIndex;
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			recognition.onresult = (event: any) => {
+				let transcript = '';
+				for (let i = event.resultIndex; i < event.results.length; i++) {
+					transcript += event.results[i][0].transcript;
+				}
+				if (!transcript.trim()) return;
+				setAnswers(prev => {
+					const next = [...prev];
+					next[idx] = next[idx] ? next[idx] + ' ' + transcript : transcript;
+					return next;
+				});
+			};
+			recognition.onerror = () => setIsListening(false);
+			recognition.onend = () => setIsListening(false);
+			speechRecognitionRef.current = recognition;
+			recognition.start();
+			setIsListening(true);
+		}, estimatedMs);
+
+		speakText(phrase);
 
 		return () => {
+			clearTimeout(listenTimer);
 			if (typeof window !== 'undefined' && window.speechSynthesis) {
 				window.speechSynthesis.cancel();
 			}
@@ -491,6 +639,12 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 		}
 
 		stopWebcam();
+		// Stop speech recognition on submit
+		if (speechRecognitionRef.current) {
+			try { speechRecognitionRef.current.stop(); } catch {}
+			speechRecognitionRef.current = null;
+		}
+		setIsListening(false);
 		setInterviewActive(false);
 		setInterviewSubmitted(true);
 	};
@@ -598,7 +752,9 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 							<div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 								<div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
 									<span>Question {currentQuestionIndex + 1} of {interviewQuestions.length}</span>
-									<span style={{ color: 'var(--color-accent)', fontWeight: 600 }}>Security: Active Gaze Tracking & Video REC</span>
+									<span style={{ color: isListening ? '#10b981' : 'var(--color-accent)', fontWeight: 600 }}>
+										{isListening ? '🎙 LISTENING — Speak your answer...' : 'Security: Active Gaze Tracking & Video REC'}
+									</span>
 								</div>
 
 								<div style={{ background: '#09070a', padding: '1.25rem', borderRadius: '0.5rem', border: '1px solid var(--border-color)' }}>
@@ -684,6 +840,9 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 											transform: 'scaleX(-1)'
 										}}
 									/>
+									{webcamActive && (
+										<canvas ref={arCanvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', transform: 'scaleX(-1)' }} />
+									)}
 									{!webcamActive && (
 										<div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Camera Loading...</div>
 									)}
@@ -896,6 +1055,9 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 										transform: 'scaleX(-1)'
 									}}
 								/>
+								{webcamActive && (
+									<canvas ref={arCanvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', transform: 'scaleX(-1)' }} />
+								)}
 								{!webcamActive && (
 									<div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
 										<p style={{ fontSize: '0.9rem' }}>Camera Off</p>
@@ -966,7 +1128,7 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 											</span>
 										</div>
 										<div style={{ display: 'flex', justifyContent: 'space-between' }}>
-											<span style={{ color: 'var(--text-secondary)' }}>Face Detection (MediaPipe)</span>
+											<span style={{ color: 'var(--text-secondary)' }}>Face Detection + AR Overlay (MediaPipe)</span>
 											<span style={{ color: faceStatus === 'looking' ? 'var(--color-success)' : faceStatus === 'away' ? 'var(--color-failure)' : webcamActive ? 'var(--color-warning)' : 'var(--text-muted)' }}>
 												{faceStatus === 'looking' ? '● Tracking' : faceStatus === 'away' ? '⚠ AWAY' : webcamActive ? '● No Face' : '○ Off'}
 											</span>

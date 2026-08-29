@@ -13,7 +13,7 @@ build-backend:
 	cd backend && go build -o backend_binary main.go
 
 run-backend: build-backend
-	./backend/backend_binary
+	cd backend && ./backend_binary
 
 run-frontend:
 	cd frontend && npm run dev
