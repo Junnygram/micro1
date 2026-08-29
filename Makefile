@@ -32,6 +32,6 @@ run: build-backend
 
 clean:
 	rm -f backend/backend_binary
-	rm -f data/zarasourcing.db
-	rm -f data/zarasourcing.db-shm
-	rm -f data/zarasourcing.db-wal
+	rm -f backend/data/zarasourcing.db
+	rm -f backend/data/zarasourcing.db-shm
+	rm -f backend/data/zarasourcing.db-wal

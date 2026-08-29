@@ -15,8 +15,10 @@ import (
 )
 
 func main() {
-	// Try loading .env from current directory or workspace root
-	workspaceDir := "/Users/junioroyewunmi/Desktop/micro1"
+	workspaceDir := os.Getenv("WORKSPACE_DIR")
+	if workspaceDir == "" {
+		workspaceDir = "." // Fallback to current directory (e.g. /app in Docker)
+	}
 	
 	// Load from workspace root
 	envPath := filepath.Join(workspaceDir, ".env")
