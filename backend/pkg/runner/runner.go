@@ -44,7 +44,12 @@ func LoadDataset(workspaceDir string) ([]MockCandidate, error) {
 	path := filepath.Join(workspaceDir, "data", "candidates", "dataset.json")
 	fileBytes, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read dataset.json: %w", err)
+		// Fallback for when /app/data is mounted as an empty volume
+		fallbackPath := filepath.Join(workspaceDir, "dataset.json")
+		fileBytes, err = os.ReadFile(fallbackPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read dataset.json from both %s and %s: %w", path, fallbackPath, err)
+		}
 	}
 
 	var dataset []MockCandidate

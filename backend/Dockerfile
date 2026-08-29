@@ -20,8 +20,9 @@ FROM alpine:latest
 
 WORKDIR /app
 
-# Copy binary and data from builder
+# Copy binary, backup dataset, and data from builder
 COPY --from=builder /app/server .
+COPY --from=builder /app/data/candidates/dataset.json ./dataset.json
 COPY --from=builder /app/data ./data
 
 # Expose port
