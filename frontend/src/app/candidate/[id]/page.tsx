@@ -87,9 +87,27 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 	// MediaRecorder refs for session archiving
 	const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 	const recordedChunksRef = useRef<Blob[]>([]);
-	const pcRef = useRef<RTCPeerConnection | null>(null);
 
 	const apiBase = 'http://localhost:8080';
+
+	// Hardcoded screening questions based on resume profiles
+	const interviewQuestions: InterviewQuestion[] = [
+		{
+			id: 1,
+			question: 'What is SQLite Write-Ahead Logging (WAL) mode, and how does it support low-latency caching in Go applications?',
+			expectedTopic: 'WAL'
+		},
+		{
+			id: 2,
+			question: 'Explain how you build interactive dashboards in React using responsive CSS and dynamically recalculate criteria states.',
+			expectedTopic: 'React state'
+		},
+		{
+			id: 3,
+			question: 'Describe how Go handles parallel routines or concurrent operations safely via interfaces or channels.',
+			expectedTopic: 'Concurrency'
+		}
+	];
 
 	const fetchCandidateData = async () => {
 		try {
@@ -395,46 +413,53 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 		setCurrentQuestionIndex(0);
 		setAnswers(['', '', '']);
 		setTabBlurCount(0);
-		
+		// Force webcam start to begin audio/video recording
 		await startWebcam();
-		await startWebRTC();
 	};
 
-	const startWebRTC = async () => {
-		if (!candidate) return;
-		const pc = new RTCPeerConnection();
-		pcRef.current = pc;
+	const speakText = async (text: string) => {
+		try {
+			const audioUrl = `${apiBase}/api/speak?text=${encodeURIComponent(text)}`;
+			const audio = new Audio(audioUrl);
+			await audio.play().catch((playErr) => {
+				console.warn('Audio autoplay failed, falling back to browser SpeechSynthesis:', playErr);
+				speakTextFallback(text);
+			});
+		} catch (err) {
+			console.warn('AWS Polly speak failed, falling back to browser SpeechSynthesis:', err);
+			speakTextFallback(text);
+		}
+	};
 
-		const audioEl = document.createElement('audio');
-		audioEl.autoplay = true;
-		pc.ontrack = (e) => {
-			audioEl.srcObject = e.streams[0];
-		};
-
-		if (webcamStreamRef.current) {
-			const audioTracks = webcamStreamRef.current.getAudioTracks();
-			if (audioTracks.length > 0) {
-				pc.addTrack(audioTracks[0], webcamStreamRef.current);
+	const speakTextFallback = (text: string) => {
+		if (typeof window !== 'undefined' && window.speechSynthesis) {
+			window.speechSynthesis.cancel();
+			const utterance = new SpeechSynthesisUtterance(text);
+			const voices = window.speechSynthesis.getVoices();
+			const englishVoice = voices.find(v => v.lang.startsWith('en')) || voices[0];
+			if (englishVoice) {
+				utterance.voice = englishVoice;
 			}
+			window.speechSynthesis.speak(utterance);
 		}
-
-		const offer = await pc.createOffer();
-		await pc.setLocalDescription(offer);
-
-		const sdpResponse = await fetch(`${apiBase}/api/session/realtime/${candidate.id}`, {
-			method: 'POST',
-			body: offer.sdp,
-			headers: { 'Content-Type': 'application/sdp' }
-		});
-		
-		if (!sdpResponse.ok) {
-			console.error("Failed to fetch SDP from backend");
-			return;
-		}
-
-		const answer = { type: 'answer' as RTCSdpType, sdp: await sdpResponse.text() };
-		await pc.setRemoteDescription(answer);
 	};
+
+	useEffect(() => {
+		if (interviewActive && candidate && interviewQuestions[currentQuestionIndex]) {
+			let phrase = '';
+			if (currentQuestionIndex === 0 && !answers[0]) {
+				phrase = `Hi ${candidate.name.split(' ')[0]}, welcome to the ${candidate.role} Vetting Assessment. `;
+			}
+			phrase += `Question ${currentQuestionIndex + 1}: ${interviewQuestions[currentQuestionIndex].question}`;
+			speakText(phrase);
+		}
+
+		return () => {
+			if (typeof window !== 'undefined' && window.speechSynthesis) {
+				window.speechSynthesis.cancel();
+			}
+		};
+	}, [currentQuestionIndex, interviewActive]);
 
 	const submitInterview = async () => {
 		if (!candidate) return;
@@ -569,30 +594,67 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 						</div>
 					) : (
 						<div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '2rem', marginTop: '1rem' }}>
-							{/* Live Voice AI Panel */}
+							{/* Questions Panel */}
 							<div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 								<div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-									<span>Live AI Vetting</span>
+									<span>Question {currentQuestionIndex + 1} of {interviewQuestions.length}</span>
 									<span style={{ color: 'var(--color-accent)', fontWeight: 600 }}>Security: Active Gaze Tracking & Video REC</span>
 								</div>
 
-								<div style={{ background: '#09070a', padding: '1.25rem', borderRadius: '0.5rem', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '300px' }}>
-									<h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: '1.5', textAlign: 'center' }}>
-										Interactive Voice Interview in Progress...
+								<div style={{ background: '#09070a', padding: '1.25rem', borderRadius: '0.5rem', border: '1px solid var(--border-color)' }}>
+									<h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: '1.5' }}>
+										{interviewQuestions[currentQuestionIndex].question}
 									</h3>
-									<p style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: '1rem' }}>
-										Please speak naturally with the AI. Your microphone and webcam are active.
-									</p>
 								</div>
 
-								<div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+								<textarea
+									value={answers[currentQuestionIndex]}
+									onChange={e => {
+										const nextAns = [...answers];
+										nextAns[currentQuestionIndex] = e.target.value;
+										setAnswers(nextAns);
+									}}
+									rows={6}
+									placeholder="Type your technical response here... (Try looking away from the camera or clicking outside the window to trigger focus alerts)"
+									style={{
+										width: '100%',
+										padding: '1rem',
+										background: '#09070a',
+										border: '1px solid var(--border-color)',
+										borderRadius: '0.5rem',
+										color: 'var(--text-primary)',
+										fontFamily: 'inherit',
+										fontSize: '0.9rem',
+										outline: 'none',
+										resize: 'none'
+									}}
+								/>
+
+								<div style={{ display: 'flex', justifyContent: 'space-between' }}>
 									<button
-										className="btn btn-primary"
-										style={{ background: 'linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%)' }}
-										onClick={submitInterview}
+										className="btn btn-secondary"
+										disabled={currentQuestionIndex === 0}
+										onClick={() => setCurrentQuestionIndex(prev => prev - 1)}
 									>
-										End & Submit Interview
+										Previous
 									</button>
+
+									{currentQuestionIndex < interviewQuestions.length - 1 ? (
+										<button
+											className="btn btn-primary"
+											onClick={() => setCurrentQuestionIndex(prev => prev + 1)}
+										>
+											Next Question
+										</button>
+									) : (
+										<button
+											className="btn btn-primary"
+											style={{ background: 'linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%)' }}
+											onClick={submitInterview}
+										>
+											Submit Vetting Interview
+										</button>
+									)}
 								</div>
 							</div>
 

@@ -17,6 +17,8 @@ import (
 	"context"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/polly"
+	ptypes "github.com/aws/aws-sdk-go-v2/service/polly/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 )
@@ -186,7 +188,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/apply", s.handleApply)
 	mux.HandleFunc("/api/proctoring", s.handleProctoringEvent)
 	mux.HandleFunc("/api/candidates/recording", s.handleUploadRecording)
-	mux.HandleFunc("/api/session/realtime/", s.handleRealtimeSession)
+	mux.HandleFunc("/api/speak", s.handleSpeak)
 
 	// Serve uploaded resume files
 	resumeDir := filepath.Join(s.WorkspaceDir, "data", "resumes")
@@ -211,6 +213,38 @@ func (s *Server) Handler() http.Handler {
 		
 		mux.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) handleSpeak(w http.ResponseWriter, r *http.Request) {
+	text := r.URL.Query().Get("text")
+	if text == "" {
+		http.Error(w, "text is required", http.StatusBadRequest)
+		return
+	}
+
+	cfg, err := config.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	svc := polly.NewFromConfig(cfg)
+	input := &polly.SynthesizeSpeechInput{
+		OutputFormat: ptypes.OutputFormatMp3,
+		Text:         aws.String(text),
+		VoiceId:      ptypes.VoiceIdJoanna,
+	}
+
+	out, err := svc.SynthesizeSpeech(context.TODO(), input)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer out.AudioStream.Close()
+
+	w.Header().Set("Content-Type", "audio/mpeg")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	io.Copy(w, out.AudioStream)
 }
 
 func (s *Server) handleCandidates(w http.ResponseWriter, r *http.Request) {
