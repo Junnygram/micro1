@@ -1,4 +1,4 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:alpine AS builder
 
 # Install build dependencies for modernc.org/sqlite
 RUN apk add --no-cache gcc musl-dev
