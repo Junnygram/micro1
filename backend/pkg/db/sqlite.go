@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,15 +119,30 @@ func InitDB(dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("failed to create db directory: %w", err)
 	}
 
-	conn, err := sql.Open("sqlite", dbPath)
+	conn, err := openDB(dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
+		return nil, err
 	}
 
-	// Enable WAL mode
-	if _, err := conn.Exec("PRAGMA journal_mode=WAL;"); err != nil {
+	// A corrupt page makes individual tables unreadable while the file still opens,
+	// so writes fail silently and the demo seed never lands. Everything here is
+	// regenerated from dataset.json on boot, so quarantining the file and starting
+	// clean is preferable to serving a half-broken database.
+	if err := integrityCheck(conn); err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("failed to enable WAL: %w", err)
+		log.Printf("[DB] integrity check failed (%v) — quarantining %s and rebuilding", err, dbPath)
+		if qErr := quarantineDB(dbPath); qErr != nil {
+			return nil, fmt.Errorf("database corrupt and could not be quarantined: %w", qErr)
+		}
+		conn, err = openDB(dbPath)
+		if err != nil {
+			return nil, err
+		}
+		if err := integrityCheck(conn); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("rebuilt database still failing integrity check: %w", err)
+		}
+		log.Println("[DB] rebuilt empty database — demo data will be re-seeded from dataset.json")
 	}
 
 	db := &DB{conn}
@@ -139,6 +155,73 @@ func InitDB(dbPath string) (*DB, error) {
 	_, _ = db.Exec("ALTER TABLE sourcing_criteria ADD COLUMN llm_model TEXT DEFAULT 'gemini'")
 
 	return db, nil
+}
+
+func openDB(dbPath string) (*sql.DB, error) {
+	conn, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
+	}
+	if _, err := conn.Exec("PRAGMA journal_mode=WAL;"); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to enable WAL: %w", err)
+	}
+	return conn, nil
+}
+
+// integrityCheck reports an error when SQLite considers the file damaged. The
+// per-table scan is deliberate: a corrupt page often only surfaces when the table
+// holding it is actually read, which PRAGMA integrity_check can miss on WAL files.
+func integrityCheck(conn *sql.DB) error {
+	var result string
+	if err := conn.QueryRow("PRAGMA integrity_check").Scan(&result); err != nil {
+		return fmt.Errorf("integrity_check failed to run: %w", err)
+	}
+	if !strings.EqualFold(strings.TrimSpace(result), "ok") {
+		return fmt.Errorf("integrity_check reported: %s", result)
+	}
+
+	rows, err := conn.Query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+	if err != nil {
+		return fmt.Errorf("could not list tables: %w", err)
+	}
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return fmt.Errorf("could not read table list: %w", err)
+		}
+		tables = append(tables, name)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("could not read table list: %w", err)
+	}
+
+	for _, t := range tables {
+		var n int
+		if err := conn.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %q", t)).Scan(&n); err != nil {
+			return fmt.Errorf("table %s unreadable: %w", t, err)
+		}
+	}
+	return nil
+}
+
+// quarantineDB moves a damaged database and its WAL sidecars aside so a fresh one
+// can be created in place. The old file is kept for post-mortem rather than deleted.
+func quarantineDB(dbPath string) error {
+	stamp := time.Now().UTC().Format("20060102T150405")
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		src := dbPath + suffix
+		if _, err := os.Stat(src); err != nil {
+			continue
+		}
+		if err := os.Rename(src, fmt.Sprintf("%s.corrupt-%s%s", dbPath, stamp, suffix)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (db *DB) migrateSchema() error {

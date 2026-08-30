@@ -234,6 +234,7 @@ func (s *Server) repairDemoCandidates() {
 	_ = candidates // ensure company query works; repair runs per github below
 
 	repaired := 0
+	var failed []string
 	for github, mock := range mockByGithub {
 		canonical, found := s.findCanonicalBenchmarkCandidate(github, mockByGithub)
 		if !found {
@@ -267,10 +268,21 @@ func (s *Server) repairDemoCandidates() {
 		_ = s.DB.ClearSessionSteps(canonical.ID)
 		s.seedCandidateDemoData(canonical.ID, mock)
 		_ = s.DB.UpdateCandidateScore(canonical.ID, expectedScore, "completed")
+
+		// Confirm the seed actually landed. Reporting "repaired" without checking hid a
+		// corrupt claims_audit table that silently dropped every insert, leaving the
+		// dashboard with scores but no citations.
+		if written, _ := s.DB.GetClaimsAudit(canonical.ID); len(mock.ExpectedAudit) > 0 && len(written) == 0 {
+			failed = append(failed, github)
+			continue
+		}
 		repaired++
 	}
 	if repaired > 0 {
 		log.Printf("Repaired demo data for %d candidate(s) (restored audits/steps after failed live runs).", repaired)
+	}
+	if len(failed) > 0 {
+		log.Printf("WARNING: demo audit seeding wrote no claims for %d candidate(s): %s. The dashboard will show scores without citations — check the claims_audit table.", len(failed), strings.Join(failed, ", "))
 	}
 }
 
