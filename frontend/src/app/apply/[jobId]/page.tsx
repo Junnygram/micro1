@@ -154,6 +154,9 @@ export default function ApplyPage() {
 					{applySuccess && (
 						<div style={{ padding: '1.5rem', background: 'rgba(16,185,129,0.08)', border: '1px solid var(--color-success)', borderRadius: '0.75rem', marginBottom: '1.5rem' }}>
 							<p style={{ color: '#6ee7b7', fontWeight: 700, fontSize: '1rem', marginBottom: '0.5rem' }}>✓ Application submitted!</p>
+							<p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
+								Known benchmark GitHub profiles (e.g. @riveradevops) get instant GitHub audit data on the company dashboard.
+							</p>
 							{interviewLink ? (
 								<>
 									<p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.75rem' }}>Your interview link is ready. Copy it and open it in Chrome or Edge to start.</p>

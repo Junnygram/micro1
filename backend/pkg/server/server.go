@@ -109,7 +109,7 @@ func (s *Server) autoSeedDatabase() {
 			resumeText := fmt.Sprintf("Candidate: %s\nRole: %s\nEmail: %s\n\n%s", mock.Name, mock.Role, mock.Email, mock.Resume)
 			_ = os.WriteFile(destPath, []byte(resumeText), 0644)
 
-			resumeS3URL := fmt.Sprintf("s3://%s/%s", s.S3Bucket, filename)
+			resumeS3URL := fmt.Sprintf("/resumes/%s", filename)
 
 			cand, err := s.DB.CreateCandidate(id, mock.Name, mock.Email, mock.Role, mock.GithubUsername, jobID, "demo_company", resumeS3URL)
 			if err != nil {
@@ -244,6 +244,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/admin/companies", s.handleAdminCompanies)
 	mux.HandleFunc("/api/benchmark", s.handleBenchmark)
 	mux.HandleFunc("/api/demo/candidate", s.handleDemoCandidate)
+	mux.HandleFunc("/api/demo/report", s.handleDemoReport)
+	mux.HandleFunc("/api/demo/preview", s.handleDemoPreview)
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/trajectory/", s.handleTrajectory)
 
@@ -418,6 +420,18 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	cand, err := s.DB.GetCandidate(req.CandidateID)
 	if err != nil {
 		http.Error(w, "Candidate not found", http.StatusNotFound)
+		return
+	}
+
+	// Preserve seeded demo audits — re-running without API keys wipes the judge demo
+	existingAudits, _ := s.DB.GetClaimsAudit(cand.ID)
+	if cand.CompanyID == "demo_company" && cand.Status == "completed" && len(existingAudits) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"preserved": true,
+			"message":   "Demo audit data preserved. View the seeded GitHub audit results below.",
+			"candidate": cand,
+		})
 		return
 	}
 
@@ -669,8 +683,13 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set status to pending (not evaluating yet)
-	_ = s.DB.UpdateCandidateScore(cand.ID, 0, "pending")
+	// Known benchmark profiles get instant GitHub audit data (demo-safe, no API key needed)
+	if s.seedKnownBenchmarkCandidate(cand.ID, github) {
+		cand, _ = s.DB.GetCandidate(cand.ID)
+		log.Printf("Auto-seeded GitHub audit for benchmark profile @%s", github)
+	} else {
+		_ = s.DB.UpdateCandidateScore(cand.ID, 0, "pending")
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -1058,6 +1077,27 @@ func (s *Server) handleCompanyDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleInterviewQuestions: GET/POST interview questions for a job
+// fallbackInterviewQuestions returns generic questions when a job has none configured.
+func fallbackInterviewQuestions(jobID string) []db.InterviewQuestion {
+	generic := []string{
+		"Walk me through a recent project you're proud of and your specific contribution.",
+		"Describe a technical challenge you solved and how you approached it.",
+		"What tools and technologies do you use day-to-day for this kind of role?",
+	}
+	qs := make([]db.InterviewQuestion, len(generic))
+	for i, q := range generic {
+		qs[i] = db.InterviewQuestion{JobID: jobID, Question: q, OrderIndex: i}
+	}
+	return qs
+}
+
+func interviewQuestionsForJob(dbQs []db.InterviewQuestion, jobID string) []db.InterviewQuestion {
+	if len(dbQs) > 0 {
+		return dbQs
+	}
+	return fallbackInterviewQuestions(jobID)
+}
+
 func (s *Server) handleInterviewQuestions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
@@ -1114,6 +1154,7 @@ func (s *Server) handleInterviewStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	qs, _ := s.DB.GetInterviewQuestions(req.JobID)
+	qs = interviewQuestionsForJob(qs, req.JobID)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"session": session, "questions": qs})
@@ -1157,6 +1198,7 @@ func (s *Server) handleInterviewSession(w http.ResponseWriter, r *http.Request) 
 	}
 	cand, _ := s.DB.GetCandidate(session.CandidateID)
 	qs, _ := s.DB.GetInterviewQuestions(session.JobID)
+	qs = interviewQuestionsForJob(qs, session.JobID)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"session": session, "candidate": cand, "questions": qs})
 }
@@ -1270,6 +1312,137 @@ func (s *Server) handleDemoCandidate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.Error(w, "candidate not found", http.StatusNotFound)
+}
+
+func demoScoreForGithub(github string) int {
+	scores := map[string]int{
+		"junnygram": 92, "riveradevops": 45, "emilycodes": 88, "rajconcurrency": 35,
+		"sarahml": 50, "mikecode": 82, "jesscloud": 85, "davidsecurity": 40,
+		"amaracodes": 38, "carlosfront": 80,
+	}
+	if s, ok := scores[github]; ok {
+		return s
+	}
+	return 75
+}
+
+func (s *Server) seedKnownBenchmarkCandidate(candidateID, github string) bool {
+	mock, err := runner.GetCandidateByGithub(s.WorkspaceDir, github)
+	if err != nil {
+		return false
+	}
+	s.seedCandidateDemoData(candidateID, *mock)
+	_ = s.DB.UpdateCandidateScore(candidateID, demoScoreForGithub(github), "completed")
+	return true
+}
+
+// handleDemoReport returns public read-only audit data for seeded benchmark candidates.
+func (s *Server) handleDemoReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	github := strings.TrimSpace(r.URL.Query().Get("github"))
+	if github == "" {
+		http.Error(w, "github query required", http.StatusBadRequest)
+		return
+	}
+	candidates, err := s.DB.ListCandidates()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var cand *db.Candidate
+	for i := range candidates {
+		if candidates[i].GithubUsername == github {
+			cand = &candidates[i]
+			break
+		}
+	}
+	if cand == nil {
+		http.Error(w, "candidate not found", http.StatusNotFound)
+		return
+	}
+	audits, _ := s.DB.GetClaimsAudit(cand.ID)
+	proctoring, _ := s.DB.GetProctoringEvents(cand.ID)
+
+	benchmarkCase := map[string]interface{}{}
+	if data, err := os.ReadFile(filepath.Join(s.WorkspaceDir, "data", "benchmark_results.json")); err == nil {
+		var bench struct {
+			Cases []map[string]interface{} `json:"cases"`
+		}
+		if json.Unmarshal(data, &bench) == nil {
+			for _, c := range bench.Cases {
+				if g, ok := c["github"].(string); ok && g == github {
+					benchmarkCase = c
+					break
+				}
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"candidate":  cand,
+		"audits":     audits,
+		"proctoring": proctoring,
+		"benchmark":  benchmarkCase,
+	})
+}
+
+// handleDemoPreview returns top demo candidates for the landing page preview widget.
+func (s *Server) handleDemoPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	candidates, err := s.DB.ListCandidatesByCompany("demo_company", "")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Sort by sourcing score desc, take top 5
+	type preview struct {
+		Name           string `json:"name"`
+		Github         string `json:"github"`
+		SourcingScore  int    `json:"sourcing_score"`
+		Status         string `json:"status"`
+		InflatedClaims int    `json:"inflated_claims"`
+	}
+	var items []preview
+	for _, c := range candidates {
+		if c.SourcingScore <= 0 {
+			continue
+		}
+		audits, _ := s.DB.GetClaimsAudit(c.ID)
+		inflated := 0
+		for _, a := range audits {
+			if a.Status == "exaggerated" || a.Status == "failed" {
+				inflated++
+			}
+		}
+		items = append(items, preview{
+			Name: c.Name, Github: c.GithubUsername, SourcingScore: c.SourcingScore,
+			Status: c.Status, InflatedClaims: inflated,
+		})
+	}
+	// Simple bubble sort for top 5 by score
+	for i := 0; i < len(items); i++ {
+		for j := i + 1; j < len(items); j++ {
+			if items[j].SourcingScore > items[i].SourcingScore {
+				items[i], items[j] = items[j], items[i]
+			}
+		}
+	}
+	if len(items) > 5 {
+		items = items[:5]
+	}
+	stats, _ := s.DB.GetCompanyAnalytics("demo_company")
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"candidates": items,
+		"analytics":  stats,
+	})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

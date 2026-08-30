@@ -1,8 +1,32 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
+
+interface PreviewCandidate {
+	name: string;
+	github: string;
+	sourcing_score: number;
+	inflated_claims: number;
+}
 
 export default function LandingPage() {
+	const [preview, setPreview] = useState<PreviewCandidate[]>([]);
+	const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+
+	useEffect(() => {
+		fetch(`${apiBase}/api/demo/preview`)
+			.then(r => (r.ok ? r.json() : null))
+			.then(d => { if (d?.candidates?.length) setPreview(d.candidates.slice(0, 3)); })
+			.catch(() => {});
+	}, [apiBase]);
+
+	const previewRows = preview.length > 0 ? preview : [
+		{ name: 'Jessica Taylor', github: 'jesscloud', sourcing_score: 85, inflated_claims: 0 },
+		{ name: 'Alex Rivera', github: 'riveradevops', sourcing_score: 45, inflated_claims: 2 },
+		{ name: 'Carlos Gomez', github: 'carlosfront', sourcing_score: 80, inflated_claims: 0 },
+	];
+
 	return (
 		<div className="landing app-container">
 			{/* Nav */}
@@ -15,6 +39,7 @@ export default function LandingPage() {
 					<a href="#features">Features</a>
 					<a href="#how">How it works</a>
 					<Link href="/benchmark">Benchmark</Link>
+					<Link href="/demo">Demo guide</Link>
 				</div>
 				<div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
 					<Link href="/company/login" className="btn btn-primary" style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}>Start hiring</Link>
@@ -40,6 +65,9 @@ export default function LandingPage() {
 					</Link>
 					<Link href="/benchmark" className="btn btn-secondary" style={{ padding: '0.85rem 1.75rem', fontSize: '0.95rem' }}>
 						Agent benchmark
+					</Link>
+					<Link href="/report/riveradevops" className="btn btn-secondary" style={{ padding: '0.85rem 1.75rem', fontSize: '0.95rem' }}>
+						See fraud caught →
 					</Link>
 				</div>
 
@@ -71,17 +99,15 @@ export default function LandingPage() {
 							))}
 						</div>
 						<div className="landing-preview-main">
-							<p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>AI Interview Rankings</p>
-							{[
-								{ name: 'Jessica Taylor', score: 95, fit: 'STRONG FIT' },
-								{ name: 'Alex Rivera', score: 45, fit: 'NOT A FIT' },
-								{ name: 'Carlos Gomez', score: 90, fit: 'STRONG FIT' },
-							].map(c => (
-								<div key={c.name} className="landing-preview-row">
+							<p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Audit Rankings (live demo data)</p>
+							{previewRows.map(c => (
+								<div key={c.github} className="landing-preview-row">
 									<span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{c.name}</span>
 									<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-										<span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: c.score >= 75 ? '#10b981' : '#ef4444' }}>{c.score}%</span>
-										<span style={{ fontSize: '0.7rem', padding: '0.15rem 0.45rem', borderRadius: '0.25rem', background: c.score >= 75 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)', color: c.score >= 75 ? '#10b981' : '#ef4444', fontWeight: 700 }}>{c.fit}</span>
+										<span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: c.sourcing_score >= 75 ? '#10b981' : '#ef4444' }}>{c.sourcing_score}%</span>
+										<span style={{ fontSize: '0.7rem', padding: '0.15rem 0.45rem', borderRadius: '0.25rem', background: c.sourcing_score >= 75 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)', color: c.sourcing_score >= 75 ? '#10b981' : '#ef4444', fontWeight: 700 }}>
+											{c.inflated_claims > 0 ? `${c.inflated_claims} FLAGGED` : 'VERIFIED'}
+										</span>
 									</div>
 								</div>
 							))}

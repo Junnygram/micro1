@@ -66,6 +66,10 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 	const [auditLoading, setAuditLoading] = useState(false);
 	const [showTrajectory, setShowTrajectory] = useState(false);
 	const [trajectoryMd, setTrajectoryMd] = useState('');
+	const [benchmarkCompare, setBenchmarkCompare] = useState<{ target?: string; baseline?: string; agent?: string } | null>(null);
+	const [replaySteps, setReplaySteps] = useState<{ type: string; content: string }[]>([]);
+	const [replayIdx, setReplayIdx] = useState(0);
+	const [replaying, setReplaying] = useState(false);
 
 	// Proctoring States
 	const [webcamActive, setWebcamActive] = useState(false);
@@ -121,6 +125,14 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 		}
 	];
 
+	useEffect(() => {
+		if (!candidate?.github_username) return;
+		fetch(`${apiBase}/api/demo/report?github=${encodeURIComponent(candidate.github_username)}`)
+			.then(r => (r.ok ? r.json() : null))
+			.then(d => { if (d?.benchmark) setBenchmarkCompare(d.benchmark); })
+			.catch(() => {});
+	}, [candidate?.github_username, apiBase]);
+
 	const fetchCandidateData = async (cid?: string) => {
 		const coId = cid || companyID;
 		if (!coId) return;
@@ -154,14 +166,14 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 		try {
 			const stored = localStorage.getItem('company');
 			if (!stored) {
-				router.push('/company/login');
+				router.push(`/company/login?return=${encodeURIComponent(`/candidate/${params.id}`)}`);
 				return;
 			}
 			const co = JSON.parse(stored);
 			setCompanyID(co.id);
 			fetchCandidateData(co.id);
 		} catch {
-			router.push('/company/login');
+			router.push(`/company/login?return=${encodeURIComponent(`/candidate/${params.id}`)}`);
 		}
 	}, [params.id, router]);
 
@@ -683,7 +695,12 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 					mode,
 				}),
 			});
-			if (!res.ok) throw new Error('Failed to start audit session');
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.message || 'Failed to start audit session');
+			if (data.preserved) {
+				setError(data.message);
+				return;
+			}
 			fetchCandidateData();
 		} catch (err) {
 			console.error('Audit session start failed:', err);
@@ -696,15 +713,34 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 	const loadTrajectoryReplay = async () => {
 		if (!candidate) return;
 		try {
-			const res = await fetch(`${apiBase}/api/trajectory/${candidate.github_username}`);
+			const res = await fetch(`${apiBase}/api/trajectory/${candidate.github_username}?format=replay`);
 			if (!res.ok) throw new Error('Trajectory not found');
 			const data = await res.json();
-			setTrajectoryMd(data.markdown || '');
-			setShowTrajectory(true);
+			if (data.steps?.length) {
+				setReplaySteps(data.steps);
+				setReplayIdx(0);
+				setReplaying(true);
+				setShowTrajectory(false);
+			} else {
+				const mdRes = await fetch(`${apiBase}/api/trajectory/${candidate.github_username}`);
+				const mdData = await mdRes.json();
+				setTrajectoryMd(mdData.markdown || '');
+				setShowTrajectory(true);
+			}
 		} catch {
 			setError('Could not load saved agent trajectory.');
 		}
 	};
+
+	useEffect(() => {
+		if (!replaying || replaySteps.length === 0) return;
+		if (replayIdx >= replaySteps.length) {
+			setReplaying(false);
+			return;
+		}
+		const timer = setTimeout(() => setReplayIdx(i => i + 1), 1200);
+		return () => clearTimeout(timer);
+	}, [replaying, replayIdx, replaySteps.length]);
 
 	const geminiStepError = steps.find(s =>
 		s.type === 'system' && s.content.includes('Error calling Gemini API')
@@ -807,8 +843,43 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 						Check AWS Bedrock or Gemini API keys in `.env` to run live audits.
 					</p>
 					<div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
-						<button className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={loadTrajectoryReplay}>View saved trajectory</button>
+						<button className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={loadTrajectoryReplay}>Replay saved audit</button>
+						<Link href={`/report/${candidate.github_username}`} className="btn btn-secondary" style={{ fontSize: '0.8rem' }}>Public report</Link>
 					</div>
+				</div>
+			)}
+
+			{benchmarkCompare?.target && (
+				<div className="panel" style={{ marginTop: '1rem', padding: '1.25rem' }}>
+					<p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.75rem' }}>Baseline vs Agent (benchmark case)</p>
+					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', textAlign: 'center' }}>
+						<div>
+							<p style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Ground truth</p>
+							<p style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: '#a855f7' }}>{benchmarkCompare.target}</p>
+						</div>
+						<div>
+							<p style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Text-only baseline</p>
+							<p style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: benchmarkCompare.baseline === benchmarkCompare.target ? '#10b981' : '#ef4444' }}>{benchmarkCompare.baseline}</p>
+						</div>
+						<div>
+							<p style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Code-grounded agent</p>
+							<p style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: benchmarkCompare.agent === benchmarkCompare.target ? '#10b981' : '#ef4444' }}>{benchmarkCompare.agent}</p>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{replaying && replaySteps.length > 0 && (
+				<div className="panel" style={{ marginTop: '1rem', padding: '1.25rem' }}>
+					<div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+						<p style={{ fontWeight: 700, fontSize: '0.9rem' }}>Replaying audit — step {Math.min(replayIdx + 1, replaySteps.length)}/{replaySteps.length}</p>
+						<button className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={() => setReplaying(false)}>Stop</button>
+					</div>
+					{replaySteps.slice(0, replayIdx + 1).map((s, i) => (
+						<div key={i} style={{ padding: '0.5rem 0.75rem', marginBottom: '0.35rem', background: 'rgba(255,255,255,0.02)', borderRadius: '0.35rem', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
+							<span style={{ color: 'var(--color-accent)', fontWeight: 700 }}>[{s.type}]</span> {s.content.slice(0, 200)}{s.content.length > 200 ? '…' : ''}
+						</div>
+					))}
 				</div>
 			)}
 
@@ -1338,45 +1409,11 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 											fontSize: '0.8rem',
 											overflowX: 'auto',
 											lineHeight: '1.5',
-											background: 'rgba(16, 185, 129, 0.01)'
+											background: selectedAudit.status === 'verified' ? 'rgba(16, 185, 129, 0.01)' : 'rgba(244, 63, 94, 0.03)'
 										}}>
-											{selectedAudit.file_path !== 'Resume Text' ? (
-												<div style={{ display: 'flex', gap: '1rem' }}>
-													<div style={{ color: 'rgba(255,255,255,0.15)', userSelect: 'none', textAlign: 'right' }}>
-														<div>01</div>
-														<div>02</div>
-														<div>03</div>
-														<div>04</div>
-														<div>05</div>
-													</div>
-													<div style={{ color: '#10b981', flex: 1 }}>
-														{/* Code Quote Mockup */}
-														<span style={{ color: 'rgba(255,255,255,0.4)' }}>{"// Audited functional footprints matched:"}</span>
-														<br />
-														{selectedAudit.evidence_text.includes('WAL') ? (
-															<code>
-																{"db, err := sql.Open(\"sqlite\", path)"}
-																<br />
-																<span style={{ background: 'rgba(16,185,129,0.1)', display: 'block' }}>{"db.Exec(\"PRAGMA journal_mode=WAL;\") // WAL Connection Wrapper verified"}</span>
-															</code>
-														) : selectedAudit.evidence_text.includes('state') ? (
-															<code>
-																{"const [weight, setWeight] = useState(50);"}
-																<br />
-																<span style={{ background: 'rgba(16,185,129,0.1)', display: 'block' }}>{"<input type=\"range\" value={weight} onChange={e => setWeight(Number(e.target.value))} />"}</span>
-															</code>
-														) : (
-															<code>
-																<span style={{ background: 'rgba(244,63,94,0.1)', display: 'block' }}>{"// No matching repository codebase exists for this claim"}</span>
-															</code>
-														)}
-													</div>
-												</div>
-											) : (
-												<div style={{ color: 'var(--text-secondary)', fontStyle: 'italic', textAlign: 'center', padding: '1rem' }}>
-													Verified purely by structural resume context. No code file associated.
-												</div>
-											)}
+											<pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono)', color: selectedAudit.status === 'verified' ? '#10b981' : '#fca5a5' }}>
+												{selectedAudit.evidence_text}
+											</pre>
 										</div>
 									</div>
 								</div>

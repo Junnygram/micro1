@@ -9,7 +9,8 @@ func TestLoadDataset(t *testing.T) {
 	// The dataset file resides in the root data directory relative to the workspace
 	// Let's resolve the path relative to our current test folder location (backend/pkg/runner/)
 	// Workspace is 2 directories up
-	workspaceDir, err := filepath.Abs("../../../")
+	// Dataset lives under backend/data/ (WORKSPACE_DIR when server runs)
+	workspaceDir, err := filepath.Abs("../../")
 	if err != nil {
 		t.Fatalf("failed to resolve absolute path of workspace: %v", err)
 	}

@@ -123,6 +123,7 @@ export default function BenchmarkPage() {
 							<th>Baseline</th>
 							<th>Agent</th>
 							<th>✓</th>
+							<th>Audit</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -133,6 +134,11 @@ export default function BenchmarkPage() {
 								<td><code style={{ fontSize: '0.8rem', color: c.baseline === c.target ? '#10b981' : '#ef4444' }}>{c.baseline}</code></td>
 								<td><code style={{ fontSize: '0.8rem', color: c.agent === c.target ? '#10b981' : '#ef4444' }}>{c.agent}</code></td>
 								<td>{c.correct ? '✅' : '❌'}{c.note && <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{c.note}</span>}</td>
+								<td>
+									<Link href={`/report/${c.github}`} style={{ fontSize: '0.75rem', color: 'var(--color-accent)', textDecoration: 'none' }}>
+										Report →
+									</Link>
+								</td>
 							</tr>
 						))}
 					</tbody>

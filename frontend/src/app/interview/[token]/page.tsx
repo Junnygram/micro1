@@ -55,6 +55,7 @@ export default function InterviewPage() {
 
 	// Intro phase: track if greeting has been spoken
 	const greetingDoneRef = useRef(false);
+	const [cameraReady, setCameraReady] = useState(false);
 
 	const SILENCE_BEFORE_PROMPT_MS = 15000;
 	const SILENCE_AUTO_ADVANCE_MS = 10000;
@@ -126,14 +127,18 @@ export default function InterviewPage() {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ session_id: session.id, answers: payload, job_title: candidate?.role || 'Software Engineer' }),
 			});
+			if (!res.ok) {
+				const errText = await res.text();
+				throw new Error(errText || 'Interview scoring failed');
+			}
 			const data = await res.json();
 			setFinalScore(data.score);
 			setFitSummary(data.fit_summary);
 			setPhase('done');
-		} catch {
+		} catch (err) {
 			setPhase('done');
 			setFinalScore(0);
-			setFitSummary('Interview submitted. Results will be reviewed by the hiring team.');
+			setFitSummary((err as Error).message || 'Interview submitted. Results will be reviewed by the hiring team.');
 		}
 	};
 
@@ -158,6 +163,10 @@ export default function InterviewPage() {
 		clearListenTimers();
 		stopRecognition();
 		saveCurrentAnswer();
+		if (questions.length === 0) {
+			submitInterview(answersRef.current);
+			return;
+		}
 		setCurrentIdx(0);
 		speakQuestion(0);
 	};
@@ -397,6 +406,7 @@ export default function InterviewPage() {
 			streamRef.current = stream;
 			if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
 			activeRef.current = true;
+			setCameraReady(true);
 
 			// Start recording
 			try {
@@ -422,7 +432,9 @@ export default function InterviewPage() {
 			} catch (e) {
 				console.warn('AR init failed, continuing without face mesh:', e);
 			}
-		} catch { /* camera denied */ }
+		} catch {
+			setCameraReady(false);
+		}
 	};
 
 	const runARLoop = () => {
@@ -521,7 +533,10 @@ export default function InterviewPage() {
 	};
 
 	const speakQuestion = async (idx: number) => {
-		if (!questions[idx]) return;
+		if (!questions[idx]) {
+			submitInterview(answersRef.current);
+			return;
+		}
 		setIsSpeaking(true);
 		setIsListening(false);
 		setTranscript('');
@@ -607,11 +622,12 @@ export default function InterviewPage() {
 				</p>
 				<div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '2rem', textAlign: 'left', padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '0.5rem', border: '1px solid var(--border-color)' }}>
 					{[
+						'Use Chrome or Edge for best voice recognition',
 						'Allow microphone & camera access when prompted',
 						'Speak clearly — answers are transcribed live',
 						'Pause when done — the AI will ask before moving on',
 						'Say "yes" or stay silent to continue to the next question',
-						`Intro + ${questions.length} technical questions — ~10 minutes`
+						`Intro + ${questions.length || 3} technical questions — ~10 minutes`
 					].map((tip, i) => (
 						<div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
 							<span style={{ color: 'var(--color-accent)' }}>✓</span> {tip}
@@ -687,8 +703,12 @@ export default function InterviewPage() {
 					<video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
 					<canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', transform: 'scaleX(-1)' }} />
 					<div style={{ position: 'absolute', top: '8px', left: '10px', display: 'flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(0,0,0,0.7)', padding: '0.2rem 0.5rem', borderRadius: '0.25rem' }}>
-						<span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ef4444', animation: 'pulseStatus 1.5s infinite' }} />
-						<span style={{ fontSize: '0.6rem', color: '#fca5a5', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>REC</span>
+						{cameraReady && (
+							<>
+								<span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ef4444', animation: 'pulseStatus 1.5s infinite' }} />
+								<span style={{ fontSize: '0.6rem', color: '#fca5a5', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>REC</span>
+							</>
+						)}
 					</div>
 					<div style={{ position: 'absolute', bottom: '8px', left: '50%', transform: 'translateX(-50%)', background: faceStatus === 'locked' ? 'rgba(16,185,129,0.85)' : faceStatus === 'deviation' ? 'rgba(239,68,68,0.85)' : 'rgba(100,116,139,0.85)', padding: '0.2rem 0.65rem', borderRadius: '0.25rem', fontSize: '0.65rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#fff' }}>
 						{faceStatus === 'locked' ? 'LOCKED ON' : faceStatus === 'deviation' ? 'GAZE DEVIATION' : 'ALIGN FACE'}

@@ -24,7 +24,32 @@ export default function CompanyDashboard() {
 	const [copied, setCopied] = useState(false);
 	const [allCandidates, setAllCandidates] = useState<Candidate[]>([]);
 	const [analytics, setAnalytics] = useState<Analytics | null>(null);
+	const [shortlist, setShortlist] = useState<string[]>([]);
+	const [showCriteria, setShowCriteria] = useState(false);
+	const [criteria, setCriteria] = useState({ weight_open_source: 33, weight_code_quality: 34, weight_experience: 33, llm_model: 'bedrock' });
 	const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+
+	useEffect(() => {
+		try {
+			const stored = localStorage.getItem('zarasourcing_shortlist');
+			if (stored) setShortlist(JSON.parse(stored));
+		} catch { /* ignore */ }
+	}, []);
+
+	const toggleShortlist = (id: string) => {
+		setShortlist(prev => {
+			const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+			localStorage.setItem('zarasourcing_shortlist', JSON.stringify(next));
+			return next;
+		});
+	};
+
+	const compositeScore = (c: Candidate, session?: InterviewSession) => {
+		const audit = c.sourcing_score || 0;
+		const interview = session?.status === 'completed' ? session.interview_score : 0;
+		if (audit > 0 && interview > 0) return Math.round(audit * 0.55 + interview * 0.45);
+		return audit || interview;
+	};
 
 	useEffect(() => {
 		try {
@@ -44,6 +69,10 @@ export default function CompanyDashboard() {
 		};
 		refresh();
 		const interval = setInterval(refresh, 12000);
+		fetch(`${apiBase}/api/criteria?company_id=${company.id}`)
+			.then(r => (r.ok ? r.json() : null))
+			.then(c => { if (c) setCriteria(c); })
+			.catch(() => {});
 		return () => clearInterval(interval);
 	}, [company]);
 
@@ -134,6 +163,18 @@ export default function CompanyDashboard() {
 		setShowQuestions(false);
 	};
 
+	const saveCriteria = async () => {
+		if (!company) return;
+		setSaving(true);
+		await fetch(`${apiBase}/api/criteria`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ ...criteria, company_id: company.id }),
+		});
+		setSaving(false);
+		setShowCriteria(false);
+	};
+
 	const copyApplyLink = () => {
 		if (!selectedJob) return;
 		const link = `${window.location.origin}/apply/${selectedJob.id}`;
@@ -147,6 +188,10 @@ export default function CompanyDashboard() {
 	const fileUrl = (path?: string, candidateId?: string) => {
 		if (!path || !company) return '';
 		if (path.startsWith('http')) return path;
+		if (path.startsWith('s3://')) {
+			const filename = path.split('/').pop();
+			return filename ? `${apiBase}/resumes/${filename}` : '';
+		}
 		if (path.includes('interview') || path.includes('recordumes')) {
 			return `${apiBase}/api/recordings/${candidateId}?company_id=${company.id}`;
 		}
@@ -171,12 +216,54 @@ export default function CompanyDashboard() {
 					</div>
 				</div>
 				<div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+					<Link href="/demo" className="btn btn-secondary" style={{ fontSize: '0.75rem' }}>Demo guide</Link>
 					<Link href="/benchmark" className="btn btn-secondary" style={{ fontSize: '0.75rem' }}>Benchmark</Link>
 					<button className="btn btn-secondary" style={{ fontSize: '0.8rem' }} onClick={() => { localStorage.removeItem('company'); router.push('/company/login'); }}>
 						Sign Out
 					</button>
 				</div>
 			</header>
+
+			{shortlist.length > 0 && (
+				<div className="panel" style={{ padding: '1rem 1.25rem', marginBottom: '1rem', border: '1px solid rgba(16,185,129,0.3)' }}>
+					<p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#10b981', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+						Shortlist ({shortlist.length})
+					</p>
+					<div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+						{shortlist.map(id => {
+							const c = allCandidates.find(x => x.id === id);
+							if (!c) return null;
+							return (
+								<Link key={id} href={`/candidate/${id}`} style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem', background: 'rgba(16,185,129,0.1)', borderRadius: '0.35rem', color: '#10b981', textDecoration: 'none', fontWeight: 600 }}>
+									{c.name} ({c.sourcing_score}%)
+								</Link>
+							);
+						})}
+					</div>
+				</div>
+			)}
+
+			{showCriteria && (
+				<div className="panel" style={{ padding: '1.25rem', marginBottom: '1rem' }}>
+					<p style={{ fontWeight: 700, marginBottom: '0.75rem' }}>Scoring preferences</p>
+					{[
+						{ key: 'weight_code_quality', label: 'Code quality' },
+						{ key: 'weight_open_source', label: 'Open source' },
+						{ key: 'weight_experience', label: 'Experience' },
+					].map(row => (
+						<div key={row.key} style={{ marginBottom: '0.75rem' }}>
+							<div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.25rem' }}>
+								<span>{row.label}</span>
+								<span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-accent)' }}>{criteria[row.key as keyof typeof criteria]}%</span>
+							</div>
+							<input type="range" min={0} max={100} value={Number(criteria[row.key as keyof typeof criteria])}
+								onChange={e => setCriteria({ ...criteria, [row.key]: Number(e.target.value) })}
+								style={{ width: '100%' }} />
+						</div>
+					))}
+					<button className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={saveCriteria} disabled={saving}>Save weights</button>
+				</div>
+			)}
 
 			{analytics && (
 				<div className="stats-grid" style={{ marginBottom: '1rem' }}>
@@ -275,6 +362,9 @@ export default function CompanyDashboard() {
 										<p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.35rem', maxWidth: '600px' }}>{selectedJob.description}</p>
 									</div>
 									<div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', flexShrink: 0 }}>
+										<button className="btn btn-secondary" style={{ fontSize: '0.8rem' }} onClick={() => setShowCriteria(!showCriteria)}>
+											{showCriteria ? 'Close' : '⚖ Scoring Weights'}
+										</button>
 										<button className="btn btn-secondary" style={{ fontSize: '0.8rem' }} onClick={() => setShowQuestions(!showQuestions)}>
 											{showQuestions ? 'Close' : '⚙ Interview Questions'}
 										</button>
@@ -361,18 +451,25 @@ export default function CompanyDashboard() {
 									</p>
 								) : (
 									<div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-										{candidates.map(c => {
+										{[...candidates].sort((a, b) => {
+											const sa = sessions.find(s => s.candidate_id === a.id);
+											const sb = sessions.find(s => s.candidate_id === b.id);
+											return compositeScore(b, sb) - compositeScore(a, sa);
+										}).map(c => {
 											const session = sessions.find(s => s.candidate_id === c.id);
 											const isDemoHighlight = c.github_username === 'riveradevops';
+											const overall = compositeScore(c, session);
+											const isShortlisted = shortlist.includes(c.id);
 											return (
-												<div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: isDemoHighlight ? 'rgba(16,185,129,0.05)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isDemoHighlight ? 'rgba(16,185,129,0.35)' : 'var(--border-color)'}`, borderRadius: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+												<div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: isDemoHighlight ? 'rgba(16,185,129,0.05)' : isShortlisted ? 'rgba(16,185,129,0.03)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isDemoHighlight ? 'rgba(16,185,129,0.35)' : isShortlisted ? 'rgba(16,185,129,0.2)' : 'var(--border-color)'}`, borderRadius: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
 													<div>
 														<p style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)', margin: 0 }}>
 															{c.name}
 															{isDemoHighlight && <span style={{ marginLeft: '0.5rem', fontSize: '0.65rem', padding: '0.15rem 0.4rem', borderRadius: '0.25rem', background: 'rgba(16,185,129,0.2)', color: '#10b981', fontWeight: 700 }}>DEMO WOW</span>}
+															{isShortlisted && <span style={{ marginLeft: '0.5rem', fontSize: '0.65rem', padding: '0.15rem 0.4rem', borderRadius: '0.25rem', background: 'rgba(16,185,129,0.15)', color: '#10b981', fontWeight: 700 }}>SHORTLISTED</span>}
 														</p>
 														<p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.15rem 0 0 0' }}>{c.email} · @{c.github_username}</p>
-														<div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.35rem', flexWrap: 'wrap' }}>
+														<div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
 															{c.resume_s3_url && (
 																<a href={fileUrl(c.resume_s3_url)} target="_blank" rel="noreferrer" style={{ fontSize: '0.7rem', color: 'var(--color-accent)', textDecoration: 'none' }}>Resume ↗</a>
 															)}
@@ -380,14 +477,23 @@ export default function CompanyDashboard() {
 																<a href={fileUrl(c.recording_s3_url, c.id)} target="_blank" rel="noreferrer" style={{ fontSize: '0.7rem', color: 'var(--color-accent)', textDecoration: 'none' }}>Interview video ↗</a>
 															)}
 															<Link href={`/candidate/${c.id}`} style={{ fontSize: '0.7rem', color: isDemoHighlight ? '#10b981' : 'var(--text-muted)', textDecoration: 'none', fontWeight: isDemoHighlight ? 700 : 400 }}>{isDemoHighlight ? 'Run GitHub audit →' : 'Audit workspace →'}</Link>
+															<Link href={`/report/${c.github_username}`} style={{ fontSize: '0.7rem', color: 'var(--color-accent)', textDecoration: 'none' }}>Public report</Link>
 														</div>
 													</div>
 													<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-														{session?.status === 'completed' ? (
-															<span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: getScoreColor(session.interview_score), fontSize: '0.9rem' }}>{session.interview_score}%</span>
-														) : (
-															<span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{session ? 'In Progress' : 'Not Interviewed'}</span>
-														)}
+														<div style={{ textAlign: 'right' }}>
+															<p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: 0 }}>Overall fit</p>
+															<span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: getScoreColor(overall), fontSize: '1rem' }}>{overall > 0 ? `${overall}%` : '—'}</span>
+															<p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.1rem 0 0' }}>
+																Audit {c.sourcing_score || '—'} · Interview {session?.status === 'completed' ? `${session.interview_score}%` : '—'}
+															</p>
+														</div>
+														<button
+															onClick={() => toggleShortlist(c.id)}
+															style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', border: '1px solid var(--border-color)', background: isShortlisted ? 'rgba(16,185,129,0.15)' : 'transparent', color: isShortlisted ? '#10b981' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 600 }}
+														>
+															{isShortlisted ? '★ Shortlisted' : '☆ Shortlist'}
+														</button>
 														<span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: '0.25rem', background: c.status === 'completed' ? 'rgba(16,185,129,0.1)' : 'rgba(99,102,241,0.1)', color: c.status === 'completed' ? '#10b981' : 'var(--color-accent)', fontWeight: 600 }}>
 															{c.status.toUpperCase()}
 														</span>

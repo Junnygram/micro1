@@ -290,6 +290,31 @@ func (db *DB) migrateSchema() error {
 			"Explain SQLite WAL mode and when you would enable it.",
 			"How do you handle concurrency safely in Go services?",
 		},
+		"frontend_job": {
+			"How do you structure state in a complex React application?",
+			"Describe your approach to responsive layout with CSS or Tailwind.",
+			"How do you optimize frontend performance for large data tables?",
+		},
+		"ml_job": {
+			"Walk me through a machine learning pipeline you built end to end.",
+			"How do you validate model performance before deploying to production?",
+			"Describe how you handle data preprocessing and feature engineering.",
+		},
+		"security_job": {
+			"How do you approach secure password storage in application code?",
+			"Describe a security review or threat model you led.",
+			"What is your process for handling secrets and credentials in CI/CD?",
+		},
+		"python_job": {
+			"How do you structure async handlers in a FastAPI service?",
+			"Describe how you manage database transactions in Python backends.",
+			"Walk me through testing strategy for a Python API.",
+		},
+		"nodejs_job": {
+			"How do you design RESTful APIs with Express or similar frameworks?",
+			"Describe how you handle errors and logging in Node.js services.",
+			"How do you manage database connections and migrations in Node?",
+		},
 	}
 	for jobID, qs := range defaultQuestions {
 		for i, q := range qs {

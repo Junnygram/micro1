@@ -1,9 +1,9 @@
 'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
-export default function CompanyLogin() {
+function CompanyLoginForm() {
 	const [isLogin, setIsLogin] = useState(true);
 	const [name, setName] = useState('');
 	const [email, setEmail] = useState('');
@@ -11,6 +11,7 @@ export default function CompanyLogin() {
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState('');
 	const router = useRouter();
+	const searchParams = useSearchParams();
 	const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
 	const handleSubmit = async (e: React.FormEvent) => {
@@ -24,7 +25,8 @@ export default function CompanyLogin() {
 			if (!res.ok) throw new Error(await res.text() || 'Authentication failed');
 			const data = await res.json();
 			localStorage.setItem('company', JSON.stringify(data));
-			router.push('/company/dashboard');
+			const returnTo = searchParams.get('return');
+			router.push(returnTo && returnTo.startsWith('/') ? returnTo : '/company/dashboard');
 		} catch (err) {
 			setError((err as Error).message);
 		} finally {
@@ -97,7 +99,8 @@ export default function CompanyLogin() {
 										if (!res.ok) throw new Error('Demo login failed');
 										const data = await res.json();
 										localStorage.setItem('company', JSON.stringify(data));
-										router.push('/company/dashboard');
+										const returnTo = searchParams.get('return');
+										router.push(returnTo && returnTo.startsWith('/') ? returnTo : '/company/dashboard');
 									} catch (err) {
 										setError((err as Error).message);
 									} finally {
@@ -115,5 +118,13 @@ export default function CompanyLogin() {
 				</div>
 			</div>
 		</div>
+	);
+}
+
+export default function CompanyLogin() {
+	return (
+		<Suspense fallback={<div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><p style={{ color: 'var(--text-muted)' }}>Loading...</p></div>}>
+			<CompanyLoginForm />
+		</Suspense>
 	);
 }
