@@ -32,7 +32,10 @@ const NOSE = 1;
 const LEFT_CHEEK = 234;
 const RIGHT_CHEEK = 454;
 
-const GAZE_LOCK = 0.032;
+// Laptop webcams sit below eye line. A tight lock (0.03) marks a normal
+// seated pose as “looking away.” Only flag a clear head turn.
+const NOSE_AWAY = 0.16;
+const IRIS_AWAY = 0.22;
 
 function has(lms: Landmark[], i: number) {
 	return i < lms.length && Number.isFinite(lms[i]?.x);
@@ -50,7 +53,7 @@ function irisOffset(lms: Landmark[]): number | null {
 }
 
 function noseOffset(lms: Landmark[]): number {
-	if (!has(lms, NOSE) || !has(lms, LEFT_CHEEK) || !has(lms, RIGHT_CHEEK)) return 1;
+	if (!has(lms, NOSE) || !has(lms, LEFT_CHEEK) || !has(lms, RIGHT_CHEEK)) return 0;
 	const center = (lms[LEFT_CHEEK].x + lms[RIGHT_CHEEK].x) / 2;
 	return Math.abs(lms[NOSE].x - center);
 }
@@ -59,7 +62,7 @@ const facePresence: ProctorCheck = {
 	id: 'face_presence',
 	evaluate: (faces) => {
 		if (faces.length === 0) {
-			return { status: 'no_face', label: 'Face the camera', faceCount: 0, gazeOffset: 1, lookingAway: true, checkId: 'face_presence' };
+			return { status: 'no_face', label: 'Finding your face', faceCount: 0, gazeOffset: 1, lookingAway: true, checkId: 'face_presence' };
 		}
 		return null;
 	},
@@ -80,8 +83,10 @@ const gaze: ProctorCheck = {
 	evaluate: (faces) => {
 		if (faces.length !== 1) return null;
 		const lms = faces[0];
-		const offset = irisOffset(lms) ?? noseOffset(lms);
-		const lookingAway = offset > GAZE_LOCK;
+		const nose = noseOffset(lms);
+		const iris = irisOffset(lms);
+		const lookingAway = nose > NOSE_AWAY || (iris != null && iris > IRIS_AWAY);
+		const offset = iris ?? nose;
 		return {
 			status: lookingAway ? 'deviation' : 'locked',
 			label: lookingAway ? 'Looking away' : 'In frame',
@@ -101,11 +106,11 @@ export function evaluateFaces(faces: Landmark[][]): FaceEval {
 		const hit = check.evaluate(faces);
 		if (hit) return hit;
 	}
-	return { status: 'no_face', label: 'Face the camera', faceCount: 0, gazeOffset: 1, lookingAway: true, checkId: 'face_presence' };
+	return { status: 'no_face', label: 'Finding your face', faceCount: 0, gazeOffset: 1, lookingAway: true, checkId: 'face_presence' };
 }
 
 export const STATUS_COPY: Record<FaceStatus, string> = {
-	no_face: 'Face the camera',
+	no_face: 'Finding your face',
 	locked: 'In frame',
 	deviation: 'Looking away',
 	multiple_faces: 'Second person',

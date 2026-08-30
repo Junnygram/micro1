@@ -23,8 +23,8 @@ import (
 const (
 	MinLabelConfidence = 60.0
 	MinFaceConfidence  = 90.0
-	MaxYawDegrees      = 28.0
-	MaxPitchDegrees    = 22.0
+	MaxYawDegrees      = 42.0
+	MaxPitchDegrees    = 38.0
 )
 
 // deviceLabels are Rekognition labels that indicate a second screen or phone in frame.
@@ -36,12 +36,6 @@ var deviceLabels = map[string]bool{
 	"iphone":          true,
 	"smartphone":      true,
 	"tablet computer": true,
-	"laptop":          true,
-	"computer":        true,
-	"screen":          true,
-	"monitor":         true,
-	"display":         true,
-	"television":      true,
 }
 
 // referenceLabels indicate notes or printed material held up during the interview.

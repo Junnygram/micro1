@@ -81,6 +81,9 @@ export default function InterviewPage() {
 	const lastSpeechAtRef = useRef(0);
 	const isSpeakingRef = useRef(false);
 	const pollyOkRef = useRef<boolean | null>(null);
+	const speakGenRef = useRef(0);
+	const speakTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const pendingFaceRef = useRef<{ status: FaceStatus; since: number } | null>(null);
 	const [awaitingConfirm, setAwaitingConfirm] = useState(false);
 	const awaitingConfirmRef = useRef(false);
 
@@ -89,9 +92,7 @@ export default function InterviewPage() {
 	const [cameraReady, setCameraReady] = useState(false);
 	const [isDemoMode, setIsDemoMode] = useState(false);
 
-	const silenceBeforePromptMs = isDemoMode ? 7000 : 12000;
-	const maxAnswerMs = isDemoMode ? 45000 : 120000;
-	const silenceAutoAdvanceMs = isDemoMode ? 8000 : 12000;
+	const silenceBeforePromptMs = 25000;
 
 	const apiBase = getApiBase();
 
@@ -113,7 +114,7 @@ export default function InterviewPage() {
 
 	const saysAdvance = (text: string) => {
 		const t = text.toLowerCase().trim();
-		return /\b(yes|yeah|yep|sure|continue|next|done|that'?s all|that is all|go ahead|move on|i'?m done|im done|no more)\b/.test(t);
+		return /\b(next question|move on|i'?m done|im done|that'?s all|that is all|go to the next)\b/.test(t);
 	};
 
 	const saysStillAnswering = (text: string) => {
@@ -126,13 +127,32 @@ export default function InterviewPage() {
 		setIsSpeaking(v);
 	};
 
+	const applyFaceStatus = (next: FaceStatus) => {
+		if (next === 'multiple_faces' || next === 'phone_detected' || next === 'locked') {
+			pendingFaceRef.current = null;
+			setFaceStatus(next);
+			return;
+		}
+		if (!pendingFaceRef.current || pendingFaceRef.current.status !== next) {
+			pendingFaceRef.current = { status: next, since: Date.now() };
+			return;
+		}
+		if (Date.now() - pendingFaceRef.current.since >= 1400) {
+			setFaceStatus(next);
+		}
+	};
+
 	const scheduleSilencePrompt = () => {
 		if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-		const spoken = accumulatedRef.current.trim().length;
-		const delay = spoken > 24 ? silenceBeforePromptMs * 2 : silenceBeforePromptMs;
+		if (isSpeakingRef.current) return;
 		silenceTimerRef.current = setTimeout(() => {
+			if (isSpeakingRef.current) return;
+			if (Date.now() - lastSpeechAtRef.current < 8000) {
+				scheduleSilencePrompt();
+				return;
+			}
 			promptContinueToNext();
-		}, delay);
+		}, silenceBeforePromptMs);
 	};
 
 	const saveCurrentAnswer = () => {
@@ -234,21 +254,22 @@ export default function InterviewPage() {
 			: (questions[typeof pending === 'number' ? pending : listenQuestionIdxRef.current]?.question || '');
 		const hadAnswer = accumulatedRef.current.trim().length > 20;
 		const prompt = hadAnswer
-			? 'If you are finished, say yes. If you want more time, keep speaking.'
+			? 'Take your time. Keep answering, or say next when you are done.'
 			: (questionText
-				? `I didn't hear you. ${questionText} Say yes for the next question, or keep answering.`
-				: 'I did not hear you. Say yes for the next question, or keep speaking.');
+				? `I will wait. ${questionText}`
+				: 'I am still listening. Go ahead when you are ready.');
 		setSpeaking(true);
 		await speak(prompt, () => {
 			setSpeaking(false);
-			startConfirmListening();
+			if (pending === 'intro') startAnswerListening('intro', 0, true);
+			else startAnswerListening('question', pending as number, true);
 		});
 	};
 
 	const startConfirmListening = () => {
 		const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 		if (!SR) {
-			finishConfirmAdvance();
+			setIsListening(false);
 			return;
 		}
 
@@ -299,18 +320,14 @@ export default function InterviewPage() {
 		try { recognition.start(); } catch { /* already started */ }
 		setIsListening(true);
 
-		confirmTimerRef.current = setTimeout(() => {
-			if (listenModeRef.current !== 'confirm') return;
-			if (accumulatedRef.current.trim().length > 24) return;
-			finishConfirmAdvance();
-		}, silenceAutoAdvanceMs);
+		// Stay on this question until they say yes or press Next. Do not auto-skip.
 	};
 
 	const startAnswerListening = (mode: 'intro' | 'question', questionIdx = 0, resume = false) => {
 		const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 		if (!SR) {
-			if (mode === 'intro') { advanceFromIntro(); return; }
-			advanceAfterQuestion(questionIdx);
+			setIsListening(false);
+			setSpeaking(false);
 			return;
 		}
 
@@ -355,10 +372,12 @@ export default function InterviewPage() {
 			lastSpeechAtRef.current = Date.now();
 			scheduleSilencePrompt();
 
-			if (mode === 'question' && saysAdvance(t) && t.trim().length < 28) {
+			if (saysAdvance(t) && t.trim().length < 22) {
 				setTimeout(() => {
-					if (listenModeRef.current === 'question') advanceAfterQuestion(questionIdx);
-				}, 800);
+					if (listenModeRef.current !== mode) return;
+					if (mode === 'intro') advanceFromIntro();
+					else advanceAfterQuestion(questionIdx);
+				}, 900);
 			}
 		};
 
@@ -381,11 +400,6 @@ export default function InterviewPage() {
 		setIsListening(true);
 		setSpeaking(false);
 		scheduleSilencePrompt();
-
-		listenTimerRef.current = setTimeout(() => {
-			if (listenModeRef.current === 'intro') advanceFromIntro();
-			else advanceAfterQuestion(questionIdx);
-		}, maxAnswerMs);
 	};
 
 	useEffect(() => { loadSession(); }, [token]);
@@ -489,13 +503,17 @@ export default function InterviewPage() {
 	};
 
 	const speak = async (text: string, onDone: () => void) => {
+		speakGenRef.current += 1;
+		const gen = speakGenRef.current;
+		if (speakTimeoutRef.current) clearTimeout(speakTimeoutRef.current);
 		let settled = false;
 		const done = () => {
-			if (settled) return;
+			if (settled || speakGenRef.current !== gen) return;
 			settled = true;
 			onDone();
 		};
-		window.setTimeout(done, Math.min(18000, 1200 + text.length * 70));
+		// Only if TTS never ends — must be longer than the spoken line.
+		speakTimeoutRef.current = setTimeout(done, Math.max(12000, 4000 + text.length * 100));
 
 		if (pollyOkRef.current === false) {
 			speakBrowser(text, done);
@@ -636,7 +654,7 @@ export default function InterviewPage() {
 						const evaled = evaluateFaces(results.faceLandmarks);
 						const faceCount = evaled.faceCount;
 						const holdingRekog = Date.now() < rekogHoldUntilRef.current;
-						if (!holdingRekog) setFaceStatus(evaled.status);
+						if (!holdingRekog) applyFaceStatus(evaled.status);
 
 						if (evaled.status === 'multiple_faces') {
 							const now = Date.now();
@@ -650,7 +668,7 @@ export default function InterviewPage() {
 						const lms = results.faceLandmarks[0];
 						const w = canvas.width;
 						const h = canvas.height;
-						const isLocked = evaled.status === 'locked';
+						const isLocked = evaled.status === 'locked' || !evaled.lookingAway;
 
 						if (evaled.lookingAway || evaled.status === 'no_face') {
 							if (!lookAwayStartRef.current) lookAwayStartRef.current = Date.now();
@@ -681,7 +699,7 @@ export default function InterviewPage() {
 						ctx.lineWidth = 2;
 						ctx.strokeRect(bx, by, bw, bh);
 					} else {
-						if (Date.now() >= rekogHoldUntilRef.current) setFaceStatus('no_face');
+						if (Date.now() >= rekogHoldUntilRef.current) applyFaceStatus('no_face');
 						if (!lookAwayStartRef.current) lookAwayStartRef.current = Date.now();
 						else if (Date.now() - lookAwayStartRef.current > 2500) {
 							const dur = Math.round((Date.now() - lookAwayStartRef.current) / 1000);
@@ -876,7 +894,7 @@ export default function InterviewPage() {
 			</div>
 
 			<div style={{ background: '#07080c', borderLeft: '1px solid var(--border-color)', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-				<div style={{ position: 'relative', borderRadius: '0.85rem', overflow: 'hidden', background: '#000', aspectRatio: '4/3', border: `2px solid ${faceStatus === 'locked' ? '#10b981' : faceStatus === 'deviation' || faceStatus === 'no_face' ? '#ef4444' : faceStatus === 'multiple_faces' ? '#a855f7' : faceStatus === 'phone_detected' ? '#f59e0b' : 'var(--border-color)'}` }}>
+				<div style={{ position: 'relative', borderRadius: '0.85rem', overflow: 'hidden', background: '#000', aspectRatio: '4/3', border: `2px solid ${faceStatus === 'locked' ? '#10b981' : faceStatus === 'deviation' ? '#ef4444' : faceStatus === 'multiple_faces' ? '#a855f7' : faceStatus === 'phone_detected' ? '#f59e0b' : 'rgba(148,163,184,0.45)'}` }}>
 					<video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
 					<canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', transform: 'scaleX(-1)' }} />
 					{cameraReady && (
