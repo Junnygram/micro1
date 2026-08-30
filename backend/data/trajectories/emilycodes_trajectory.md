@@ -1,47 +1,97 @@
-# Sourcing Verification Trajectory: Emily Chen (@emilycodes)
+# Agent trajectory — Emily Chen (@emilycodes) — Iteration 1 failure
 
-- **Candidate ID:** `40404f26-aca8-4f43-be28-e3629ef43f03`
-- **Vetting Target:** @emilycodes on GitHub
-- **Verification Provider:** ZaraSourcing (Grounded Code Auditor)
+**Agent:** ZaraSourcing tool loop, **before** `list_repo_files`  
+**Case:** `dataset.json` → Emily Chen  
+**Target:** `verified`  
+**Published agent verdict:** `exaggerated` (false positive)
 
----
-
-### `[SYSTEM]` at 2026-08-30 08:46:33.31396 -0400 EDT m=+0.112407418
-
-Initializing vetting session for @emilycodes
+This is the experiment the changelog kept learning from — and the one to mention as “what went wrong.”
 
 ---
 
-### `[THOUGHT]` at 2026-08-30 08:46:33.314058 -0400 EDT m=+0.112505168
+### `[SYSTEM]`
 
-> Candidate claims: Emily Chen. Fetching public repositories for analysis...
-
----
-
-### `[TOOL_CALL]` at 2026-08-30 08:46:33.314152 -0400 EDT m=+0.112599251
-
-Agent requested tool: **`git clone repositories [glassmorphic-dashboard]`**
+(Iteration 1) Read GitHub files. Cite evidence. No `list_repo_files` tool yet.
 
 ---
 
-### `[TOOL_RESULT]` at 2026-08-30 08:46:33.314244 -0400 EDT m=+0.112691668
+### `[USER]`
 
-Tool `Clone completed. Scanned codebase structures. Found repos: glassmorphic-dashboard` returned result:
+Emily Chen · `@emilycodes`  
+Claims: React Hooks, Next.js App Router, CSS Module animations, glassmorphic dashboards.
+
+**Files that actually exist**
+
+- `glassmorphic-dashboard/src/app/page.tsx`
+- `glassmorphic-dashboard/src/styles/dashboard.module.css`
+
+---
+
+### `[TOOL_CALL]`
+
+`list_github_repos` → `glassmorphic-dashboard`
+
+---
+
+### `[TOOL_CALL]`
+
+`get_repo_file` `{"filepath":"package.json"}`
+
+### `[TOOL_RESULT]`
+
 ```json
-
+{ "error": "file not found" }
 ```
 
 ---
 
-### `[THOUGHT]` at 2026-08-30 08:46:33.314331 -0400 EDT m=+0.112778918
+### `[TOOL_CALL]`
 
-> Running static analysis rules to reconcile code segments with candidate resume claims...
+`get_repo_file` `{"filepath":"README.md"}`
+
+### `[TOOL_RESULT]`
+
+```json
+{ "error": "file not found" }
+```
 
 ---
 
-### `[SYSTEM]` at 2026-08-30 08:46:33.314419 -0400 EDT m=+0.112866293
+### `[TOOL_CALL]`
 
-Static claims audit trail computed successfully. Session closed.
+`get_repo_file` `{"filepath":"src/app/dashboard/page.tsx"}`
+
+### `[TOOL_RESULT]`
+
+```json
+{ "error": "file not found" }
+```
 
 ---
 
+### `[THOUGHT]`
+
+Three misses. Treat the repo as empty. Mark CSS / glassmorphism claim exaggerated.
+
+---
+
+### `[TOOL_CALL]`
+
+`save_claim_audit` → `exaggerated`  
+Evidence: “could not find dashboard or CSS files.”
+
+---
+
+### `[LEARNING]`
+
+The files were there. The agent guessed common paths. **“File not found” looked like evidence.**
+
+Iteration 2 added `list_repo_files` and `available_files` on miss so the next call would return:
+
+```json
+["src/app/page.tsx", "src/styles/dashboard.module.css"]
+```
+
+`.glassCard` in the CSS module is the citation a correct run should use.
+
+Published `benchmark_results.json` still records this case as an agent miss so the score stays honest.

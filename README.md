@@ -7,6 +7,17 @@
 
 ZaraSourcing screens engineers on **evidence instead of keywords**. It reads a candidate's resume claims, then goes and reads their actual GitHub code to check whether those claims hold up. Candidates then sit a hands-free AI voice interview that is proctored server-side by Amazon Rekognition. The recruiter gets a ranked leaderboard where every verdict is backed by named evidence — the repo file the agent read, or an explicit note that the claimed work is absent from the account.
 
+This maps to the hackathon’s **candidate evaluation** example: *should we hire this person?*
+
+| Official question | This project |
+|---|---|
+| **01 Who has this problem?** | Recruiters and hiring managers screening technical applicants. |
+| **02 What bottleneck makes it worth solving?** | Resume claims, GitHub, interviews, and proctoring sit in different places. A keyword ATS scores a well-written lie 100/100. Manual GitHub review takes ~15 minutes and is easy to skip. |
+| **03 Does the agent solve it well?** | A tool-calling agent reads repo files, cites them, and flags contradictions. A text-only baseline on the **same 10 cases** gets 60% verdict accuracy and catches **1/5** frauds. The agent gets 70% and catches **5/5**. It over-flags 3 honest engineers — that cost is in the table, not hidden. A qualified recruiter still makes the hire. |
+| **04 Can another person reproduce the result?** | Yes. `make verify-benchmark` (no key). `make evaluate` (Gemini key, ~2–5 min). Same cases in `backend/data/candidates/dataset.json`. Live walkthrough: `/demo`. |
+
+**Judge packet:** [CHANGELOG.md](./CHANGELOG.md) · [REPRODUCTION.md](./REPRODUCTION.md) · [SUBMISSION.md](./SUBMISSION.md) (video script) · [backend/data/trajectories/](./backend/data/trajectories/)
+
 ---
 
 ## The problem
@@ -38,8 +49,8 @@ The agent returns a verdict per claim (`verified` / `exaggerated` / `failed`), a
 
 - Questions are set per job by the recruiter, spoken with **AWS Polly** neural TTS (browser `SpeechSynthesis` fallback).
 - The candidate just talks. The **Web Speech API** transcribes live.
-- Silence detection drives the flow: after a pause the AI asks *"Are you done?"* and advances on its own. No button required.
-- **AWS Bedrock Claude** scores the full transcript (Gemini fallback) and returns `score`, `fit_summary`, `strengths`, `gaps`.
+- After a long pause the interviewer repeats the question and keeps listening. It does **not** skip ahead. The candidate says they are done, or presses **Next**.
+- **AWS Bedrock Claude** scores the full transcript (Gemini fallback). Scores are visible to the hiring team on Admin, not on the candidate’s complete screen.
 
 ### 3. Proctoring decided by Amazon Rekognition
 
@@ -62,10 +73,10 @@ Browser  ──capture 480px JPEG──▶  POST /api/proctoring/analyze
 | Verdict | Trigger |
 |---|---|
 | `ok` | one face, head pose within limits, nothing flagged |
-| `device_detected` | phone / laptop / screen / book / paper label above 60% |
+| `device_detected` | phone / tablet / book / paper label above 60% (not the candidate’s own laptop) |
 | `multiple_faces` | more than one face above 90% confidence |
 | `no_face` | zero faces above 90% confidence |
-| `gaze_away` | \|yaw\| > 28° or \|pitch\| > 22° |
+| `gaze_away` | \|yaw\| > 42° or \|pitch\| > 38° |
 
 Every flag stored on the candidate carries the Rekognition label and its confidence, so a recruiter can see *why* a session was flagged rather than trusting a boolean. MediaPipe still runs in the browser, but only to draw the live face mesh — it does not decide anything.
 
@@ -134,7 +145,7 @@ Start at **https://micro1-production.up.railway.app/demo** — a guided page tha
 | Guided demo walkthrough | `/demo` |
 | Benchmark, live from the results file | `/benchmark` |
 | Recruiter dashboard (`demo@zarasourcing.com` / `demo123`) | `/company/login` |
-| 2-question voice + AR interview | `/demo` → **Launch demo interview** |
+| Voice + AR interview | `/demo` → **Voice + AR demo** |
 | Candidate apply flow | `/apply/devops_job` |
 
 **Best single thing to look at:** the recruiter dashboard → **Alex Rivera** (`@riveradevops`), scored 45%. He claims *"Expert in writing multi-stage Docker builds and Helm charts"*; the agent read his repos and found no Dockerfiles or Helm templates at all, only empty READMEs. The text-only baseline scored him `verified` — the resume reads well — while the agent scored him `exaggerated`. That single row is the whole thesis.

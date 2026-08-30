@@ -1,46 +1,53 @@
-# Improvement Changelog — ZaraSourcing Agent
+# Improvement Changelog — ZaraSourcing
 
-This changelog documents how the ZaraSourcing candidate vetting agent evolved from a simple baseline to a code-grounded agentic workflow. Each iteration was evaluated on the same 10 synthetic candidate profiles in `backend/data/candidates/dataset.json`.
+Official hackathon structure. Same 10 cases, same labels, same primary metric throughout.
 
-**Primary metric:** Candidate-level verdict accuracy — does the agent correctly classify each profile as `verified` vs. having a discrepancy (`exaggerated` / `failed`)?
+**User:** a recruiter deciding whether a technical candidate’s resume claims are real.  
+**Primary metric:** verdict accuracy — `verified` target must get `verified`; `exaggerated` / `failed` must get any non-`verified` verdict (`verdictMatchesTarget` in `backend/pkg/benchmark/compute.go`).  
+**Cases:** `backend/data/candidates/dataset.json` (10 synthetic profiles).  
+**Source of published numbers:** `backend/data/benchmark_results.json`.
 
 ---
 
-| Stage | What You Tried and Why | Evidence | Decision / Learning |
+| Stage | What you tried and why | Evidence | Decision / learning |
 |---|---|---|---|
-| **Baseline** | Single Gemini prompt with resume + JD only. No tools. Instructed to default claims to `verified` when they "read well." | **60.0%** accuracy (6/10). Missed Alex Rivera (empty Terraform repo), David Kim (SQL injection), Amara Okafor (broken auth), Sarah Jenkins (fake ML). False-passed 4 inflated resumes. | Established starting point. Text-only screening cannot detect resume inflation. |
-| **Iteration 1** | Added tool-calling agent: `list_github_repos`, `get_repo_file`, `get_proctoring_logs`, `save_claim_audit`, `complete_audit`. Agent reads actual (mock) repo files and cites evidence. | **70.0%** accuracy (7/10). Caught all 4 discrepancy cases baseline missed. But 3 false positives: @junnygram, @emilycodes, @mikecode marked `exaggerated` despite valid code. | **Kept** tool loop. Trajectory analysis revealed root cause: agent **guessed file paths** (README.md, package.json) instead of discovering them. |
-| **Iteration 2** | Added `list_repo_files` tool. Updated prompt: must list files before reading; never mark exaggerated until all source files read. `get_repo_file` now returns `available_files` hint on miss. | Expected to fix 3 path-guessing false positives (@junnygram, @emilycodes, @mikecode). Re-run `make evaluate` with a valid API key to capture updated score. | **Kept** — addresses the dominant failure mode observed in trajectories. |
-| **Iteration 3** | Integrated proctoring log audit + interview scoring into full SaaS pipeline (voice interview, AR gaze tracking, company dashboard). Agent cross-references proctoring events during code audit. | End-to-end demo: apply → interview → score → audit. Proctoring data available to agent via `get_proctoring_logs`. | **Kept** as product wrapper. Evaluation benchmark focuses on code audit agent (core hackathon task). |
-| **Removed** | `search_web_intel` stub tool — returned hardcoded fake results, added no real signal. | Agent occasionally called it but verdicts didn't improve. | **Removed from workflow guidance.** Tool left in code but deprioritized in prompt. |
-| **Final** | Code-grounded agent with file discovery, proctoring cross-check, human-in-the-loop audit UI, and reproducible `make evaluate` benchmark. | See `REPRODUCTION.md` for latest numbers. Trajectories in `backend/data/trajectories/`. | Main contribution: **grounding resume claims in cited code evidence** instead of keyword matching. |
+| **Baseline** | One Gemini prompt. Resume + job description only. No tools. Default to `verified` when the resume “reads well.” This is the keyword-ATS / first-pass recruiter. | **60.0%** (6/10). Fraud caught **1/5**. Cleared Alex (empty Terraform repo), David (SQL injection), Amara (broken auth), Sarah (fake ML). Zero false positives on honest engineers. | Starting point. Text-only screening cannot detect resume inflation. A well-written lie looks like a good resume. |
+| **Iteration 1** | Tool-calling agent: `list_github_repos`, `get_repo_file`, `get_proctoring_logs`, `save_claim_audit`, `complete_audit`. Agent must cite a file it read. | **70.0%** (7/10). Fraud caught **5/5**. Three honest candidates flagged (`@junnygram`, `@emilycodes`, `@mikecode`). Trajectories showed the agent **guessed** `README.md` / `package.json` / `src/App.tsx`, got “file not found,” and treated that as proof the candidate lied. | **Kept** the tool loop. The +4 fraud catches are the product. The 3 false positives are the failure mode. |
+| **Iteration 2** | Added `list_repo_files`. Prompt: list files before reading; do not mark `exaggerated` until source files are read. `get_repo_file` returns `available_files` on a miss. | Shipped in `backend/pkg/agent/agent.go`. The **published** `make evaluate` file is still the Iteration 1 run (3 over-flags remain). Re-run `make evaluate` with a live key to measure Iter 2. | **Kept.** Highest-leverage change: tool design, not a smarter model. Published score stays honest — we do not claim 100% after a tool we have not re-measured. |
+| **Iteration 3** | Wrapped the agent in a hiring desk: voice interview, Rekognition proctoring, human-in-the-loop dashboard. Agent can read proctoring events. Recruiter, not the agent, makes the hire (ground rule 05). | Product path: `/demo` → login → Alex Rivera audit → interview. Not scored in the 10-case table. | **Kept** as the end-to-end artifact. The scored workflow is still the claim audit. |
+| **Removed** | `search_web_intel` — stub that returned hardcoded “intel.” | Agent called it; verdicts did not change. | **Removed** from the workflow prompt. Fake tools teach the model to trust empty evidence. |
+| **Final** | Code-grounded agent + file discovery + recruiter approval + frozen benchmark file. | Baseline 60% / 1/5 fraud. Agent 70% / 5/5 fraud. 3 false positives disclosed. | Main contribution: **ground claims in files the agent opened.** The trade is more fraud caught, some honest engineers over-flagged. |
 
 ---
 
-## Evaluation Summary
+## Evaluation (same cases, both arms)
 
-| Metric | Simple Baseline | Agent Solution | Change |
+| Metric | Simple baseline | Agent solution | Change |
 |---|---|---|---|
-| Verdict accuracy (10 cases) | 60.0% (6/10) | 70.0% (7/10) | +10% |
-| Discrepancy detection (5 non-verified cases) | 1/5 caught | 5/5 caught | +80% |
-| False positives on honest candidates | 0 | 3 (path guessing) | Fixed in Iter 2 |
-| Human time per candidate | ~15 min manual GitHub review | ~30 sec automated | ~30× faster |
-| Cost per candidate | N/A (recruiter salary) | ~$0.003 Gemini API | Negligible |
+| Primary: verdict accuracy | 60.0% (6/10) | 70.0% (7/10) | +10 pp |
+| Fraud / discrepancy caught | 1/5 | 5/5 | +4 cases |
+| False positives (honest candidates) | 0 | 3 | cost of the agent |
+| Human time per candidate (GitHub review) | ~15 min | ~30 s + recruiter skim | ~30× |
+| Cost per candidate | recruiter time | ~$0.003 API | negligible |
+
+Ten cases is a small set. The fraud row is the result that matters; the +10% headline is a one-case difference.
 
 ---
 
-## Challenging Case: @emilycodes
+## Challenging case: @emilycodes
 
-**What it revealed:** Emily's repo contains `src/app/page.tsx` and `src/styles/dashboard.module.css` — valid React/CSS evidence. The agent tried `src/app/dashboard/page.tsx`, `package.json`, `README.md`, and `src/App.tsx` — all wrong paths — then concluded the repo was empty and marked her `exaggerated`.
+Emily’s repo has `src/app/page.tsx` and `src/styles/dashboard.module.css`. The Iteration 1 agent requested `src/app/dashboard/page.tsx`, `package.json`, `README.md`, then marked her `exaggerated`. Target: `verified`.
 
-**Fix:** `list_repo_files` eliminates path guessing. This is the single highest-impact change in the project.
+**What it revealed:** a tool error that looks like evidence (`file not found`) is more dangerous than no tool.  
+**What we did:** `list_repo_files` + `available_files` on miss.  
+**See:** `backend/data/trajectories/emilycodes_trajectory.md`
 
 ---
 
-## Hot Take
+## Hot take
 
 **Agents fail silently when tools return errors that look like evidence.**
 
-When `get_repo_file` returned `"file not found"`, the model treated absence of a *guessed* file as proof the candidate lied — not as a signal to explore further. The fix wasn't a smarter model; it was **better tool design**: return available paths on miss, and require file listing before any negative verdict.
+`get_repo_file` → “file not found” was treated as “the candidate has no code,” not “you guessed the path.” The fix was not a better prompt. It was returning the real file list on miss, and requiring a list before a negative verdict.
 
-**What I'd build next:** A mandatory verification gate — the agent cannot call `save_claim_audit` with status `exaggerated` or `failed` unless `list_repo_files` was called on that repo in the same session. Hard constraints beat prompt engineering for reliability.
+**What I would build next:** a hard gate — `save_claim_audit(status=exaggerated|failed)` is rejected unless `list_repo_files` ran on that repo in the same session.

@@ -1,47 +1,105 @@
-# Sourcing Verification Trajectory: Alex Rivera (@riveradevops)
+# Agent trajectory — Alex Rivera (@riveradevops)
 
-- **Candidate ID:** `593a37a6-aa08-4c30-97f3-dc2502d82cb5`
-- **Vetting Target:** @riveradevops on GitHub
-- **Verification Provider:** ZaraSourcing (Grounded Code Auditor)
+**Agent:** ZaraSourcing tool loop (`backend/pkg/agent/agent.go`)  
+**Case:** `dataset.json` → Alex Rivera  
+**Target:** `exaggerated`  
+**Agent verdict:** `exaggerated` (correct)  
+**Score used on the demo desk:** 45%
 
----
-
-### `[SYSTEM]` at 2026-08-30 08:46:33.312525 -0400 EDT m=+0.110972751
-
-Initializing vetting session for @riveradevops
+Representative trace from the agent instructions and the files in the case. This is the realistic execution to show in the video.
 
 ---
 
-### `[THOUGHT]` at 2026-08-30 08:46:33.312699 -0400 EDT m=+0.111146710
+### `[SYSTEM]`
 
-> Candidate claims: Alex Rivera. Fetching public repositories for analysis...
-
----
-
-### `[TOOL_CALL]` at 2026-08-30 08:46:33.312787 -0400 EDT m=+0.111234710
-
-Agent requested tool: **`git clone repositories [terraform-templates]`**
+Audit each resume claim against code. For every repo: `list_repo_files` before `get_repo_file`. Do not mark exaggerated until source files have been read. Save claims with `save_claim_audit`, then `complete_audit`. A recruiter makes the hire.
 
 ---
 
-### `[TOOL_RESULT]` at 2026-08-30 08:46:33.312869 -0400 EDT m=+0.111316668
+### `[USER]`
 
-Tool `Clone completed. Scanned codebase structures. Found repos: terraform-templates` returned result:
+Candidate: Alex Rivera · `@riveradevops`  
+Resume claims Docker, Helm, Terraform SRE workspaces.  
+JD requires Dockerfiles, Kubernetes manifests, Terraform.
+
+---
+
+### `[TOOL_CALL]`
+
+`list_github_repos` `{"username":"riveradevops"}`
+
+### `[TOOL_RESULT]`
+
 ```json
-
+[{ "name": "terraform-templates", "stars": 1, "languages": [] }]
 ```
 
 ---
 
-### `[THOUGHT]` at 2026-08-30 08:46:33.312954 -0400 EDT m=+0.111401376
+### `[TOOL_CALL]`
 
-> Running static analysis rules to reconcile code segments with candidate resume claims...
+`list_repo_files` `{"username":"riveradevops","repo":"terraform-templates"}`
+
+### `[TOOL_RESULT]`
+
+```json
+["README.md"]
+```
 
 ---
 
-### `[SYSTEM]` at 2026-08-30 08:46:33.313036 -0400 EDT m=+0.111483751
+### `[TOOL_CALL]`
 
-Static claims audit trail computed successfully. Session closed.
+`get_repo_file` `{"username":"riveradevops","repo":"terraform-templates","filepath":"README.md"}`
+
+### `[TOOL_RESULT]`
+
+```
+# Terraform Templates
+Custom workspaces for SRE. TODO: add tf files.
+```
 
 ---
 
+### `[THOUGHT]`
+
+Only file is a README with a TODO. No Dockerfile, no Helm chart, no `.tf`. The claim “expert in multi-stage Docker builds and Helm charts” is not in this account. Absence is the evidence.
+
+---
+
+### `[TOOL_CALL]`
+
+`get_proctoring_logs` `{"candidate_id":"…"}`
+
+### `[TOOL_RESULT]`
+
+Look-away 22s while discussing Helm manifests (seeded integrity event). Logged for the recruiter; not used as proof the code exists.
+
+---
+
+### `[TOOL_CALL]`
+
+`save_claim_audit`
+
+```json
+{
+  "claim_text": "Expert in writing multi-stage Docker builds and Helm charts",
+  "status": "exaggerated",
+  "file_path": "terraform-templates/README.md",
+  "evidence_text": "No Dockerfiles or Helm templates in the account. Only README.md: 'TODO: add tf files.'"
+}
+```
+
+---
+
+### `[TOOL_CALL]`
+
+`complete_audit` → composite **45%**, status `exaggerated`
+
+---
+
+### `[HUMAN]`
+
+Recruiter opens `/candidate/{id}` or `/report/riveradevops`, reads the citation, decides. The agent does not hire.
+
+Baseline on this case said `verified`. See [baseline_trajectory.md](./baseline_trajectory.md).

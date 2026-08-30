@@ -1,5 +1,13 @@
 # Reproduction Guide: ZaraSourcing
 
+For a second person starting from a clean machine. Same 10 cases for baseline and agent.
+
+**No API key (check the published file):** `make verify-benchmark`  
+**Live key (re-run both arms):** `make evaluate` (~2–5 min, ~$0.03 Gemini)  
+**What to expect:** baseline ~60% / 1/5 fraud; agent ~70% / 5/5 fraud; 3 honest over-flags. Numbers must match `backend/data/benchmark_results.json`.
+
+---
+
 Follow this guide to set up a clean workspace, run the verification suites, and execute the comparative evaluation benchmark between the **Text-Only Baseline** and the **ZaraSourcing Agent Solution**.
 
 ---
