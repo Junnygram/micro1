@@ -43,7 +43,7 @@ function CompanyLoginForm() {
 						<div className="logo-icon" style={{ background: 'linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%)' }}>ZS</div>
 						<span style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)' }}>ZaraSourcing</span>
 					</Link>
-					<p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.5rem' }}>AI-powered technical hiring platform</p>
+									<p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.5rem' }}>Hiring workspace for your team</p>
 				</div>
 
 				<div className="panel" style={{ padding: '2rem' }}>
@@ -109,10 +109,10 @@ function CompanyLoginForm() {
 									}
 								}}
 							>
-								{loading ? 'Signing in...' : '⚡ One-click demo login'}
+								{loading ? 'Signing in...' : 'Continue with sample workspace'}
 							</button>
 							<p style={{ textAlign: 'center', marginTop: '0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-								Demo: <span style={{ color: 'var(--color-accent)', fontFamily: 'var(--font-mono)' }}>demo@zarasourcing.com</span> / <span style={{ color: 'var(--color-accent)', fontFamily: 'var(--font-mono)' }}>demo123</span>
+								Sample team: <span style={{ color: 'var(--color-accent)', fontFamily: 'var(--font-mono)' }}>demo@zarasourcing.com</span>
 							</p>
 						</>
 					)}

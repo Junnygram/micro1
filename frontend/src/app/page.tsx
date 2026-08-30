@@ -37,14 +37,13 @@ export default function LandingPage() {
 					<span style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>ZaraSourcing</span>
 				</Link>
 				<div className="landing-nav-links">
-					<a href="#features">Features</a>
-					<a href="#how">How it works</a>
-					<Link href="/benchmark">Benchmark</Link>
-					<Link href="/demo">Demo guide</Link>
+					<a href="#how">Product</a>
+					<a href="#features">Platform</a>
+					<Link href="/report/riveradevops">Sample report</Link>
 				</div>
 				<div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+					<Link href="/company/login" className="btn btn-secondary" style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}>Sign in</Link>
 					<Link href="/company/login" className="btn btn-primary" style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}>Start hiring</Link>
-					<Link href="/apply/devops_job" className="btn btn-secondary" style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}>Apply</Link>
 				</div>
 			</nav>
 
@@ -52,32 +51,28 @@ export default function LandingPage() {
 			<section className="landing-hero">
 				<div className="landing-badge">
 					<span className="landing-badge-dot" />
-					Agentic hiring platform
+					Technical hiring, with evidence
 				</div>
 				<h1 className="landing-headline">
 					Hire engineers based on<br /><em>what they actually built</em>
 				</h1>
 				<p className="landing-sub">
-					micro1&apos;s <strong>Zara</strong> agent runs AI voice interviews — but can&apos;t verify whether resume claims match GitHub code.
-					<strong> ZaraSourcing</strong> adds code-grounded audit (Bedrock + cited evidence), AR proctoring, and a recruiter dashboard. The agent recommends; you decide.
+					ZaraSourcing reads a candidate&apos;s GitHub against their resume, runs a proctored voice interview, and ranks the pipeline for you. Every score cites a file. You still make the hire.
 				</p>
 				<div className="landing-cta-row">
-					<Link href="/demo" className="btn btn-primary" style={{ padding: '0.85rem 1.75rem', fontSize: '0.95rem' }}>
-						Video walkthrough →
-					</Link>
-					<Link href="/benchmark" className="btn btn-secondary" style={{ padding: '0.85rem 1.75rem', fontSize: '0.95rem' }}>
-						Benchmark 60→70%
+					<Link href="/company/login" className="btn btn-primary" style={{ padding: '0.85rem 1.75rem', fontSize: '0.95rem' }}>
+						Open the hiring desk →
 					</Link>
 					<Link href="/report/riveradevops" className="btn btn-secondary" style={{ padding: '0.85rem 1.75rem', fontSize: '0.95rem' }}>
-						Fraud caught →
+						See a sample audit
 					</Link>
 				</div>
 
 				<div className="landing-stats">
 					{[
-						{ value: '70%', label: 'Agent vs 60% baseline' },
-						{ value: '5/5', label: 'Discrepancy cases caught' },
-						{ value: '10', label: 'Benchmark test cases' },
+						{ value: 'Cited', label: 'Every claim maps to a repo file' },
+						{ value: 'Live', label: 'Voice interview, camera on' },
+						{ value: 'Yours', label: 'The agent recommends. You decide.' },
 					].map(s => (
 						<div key={s.label} style={{ textAlign: 'center' }}>
 							<div className="landing-stat-value">{s.value}</div>
@@ -101,7 +96,7 @@ export default function LandingPage() {
 							))}
 						</div>
 						<div className="landing-preview-main">
-							<p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Audit Rankings (live demo data)</p>
+							<p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Pipeline · DevOps SRE</p>
 							{previewRows.map(c => (
 								<div key={c.github} className="landing-preview-row">
 									<span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{c.name}</span>
@@ -121,15 +116,15 @@ export default function LandingPage() {
 			<section className="landing-section" id="how">
 				<div className="landing-section-header">
 					<h2>From application to ranked shortlist</h2>
-					<p>Candidates apply with a resume, receive a private interview link, and companies review ranked results.</p>
+					<p>One apply link. A private interview. A ranked shortlist with citations — not keyword scores.</p>
 				</div>
 				<div className="landing-steps">
 					{[
-						{ num: '01', title: 'Company posts a role', desc: 'Create a job and AI interview questions. Share one apply link.' },
-						{ num: '02', title: 'Candidate applies', desc: 'Resume stored in S3 (or local dev). GitHub username captured for audit.' },
-						{ num: '03', title: 'Code audit agent runs', desc: 'Bedrock/Gemini agent lists repos, reads files, saves cited claim verdicts.' },
-						{ num: '04', title: 'Zara voice interview + AR', desc: 'Private link — Polly/Bedrock voice, MediaPipe gaze, multi-face & phone alerts.' },
-						{ num: '05', title: 'Recruiter decides', desc: 'Dashboard ranks applicants. Agent recommends — qualified human makes the hire call.' },
+						{ num: '01', title: 'Post the role', desc: 'Add the job, set the interview questions, copy the apply link.' },
+						{ num: '02', title: 'Candidate applies', desc: 'Name, resume, GitHub. No recruiter calendar required.' },
+						{ num: '03', title: 'Code is audited', desc: 'The agent opens their repos, reads the files, and grades each resume claim.' },
+						{ num: '04', title: 'Voice interview', desc: 'A private link. Questions spoken aloud. Camera on. Integrity events logged.' },
+						{ num: '05', title: 'You decide', desc: 'Ranked pipeline, cited evidence, interview scores. The hire is still yours.' },
 					].map(s => (
 						<div key={s.num} className="landing-step">
 							<div className="landing-step-num">{s.num}</div>
@@ -142,17 +137,17 @@ export default function LandingPage() {
 
 			<section className="landing-section" id="features" style={{ paddingTop: 0 }}>
 				<div className="landing-section-header">
-					<h2>Technical Safeguards &amp; Architecture</h2>
-					<p>Enterprise-grade tools built to evaluate actual capabilities.</p>
+					<h2>Built for hiring teams, not keyword filters</h2>
+					<p>Screening, interview, and integrity in one product — with a paper trail a recruiter can defend.</p>
 				</div>
 				<div className="landing-features">
 					{[
-						{ icon: '🤖', title: 'AI-Powered Screening', desc: 'Automatically audit resumes against actual code commits to surface the most capable candidates.' },
-						{ icon: '👀', title: 'Anti-Plagiarism Protection', desc: 'Advanced tracking ensures candidate authenticity during assessments, detecting distractions and unauthorized assistance.' },
-						{ icon: '🎙', title: 'Real-time Voice Interviews', desc: 'Conduct lifelike technical interviews using dynamic, human-quality AI voice interactions.' },
-						{ icon: '🎥', title: 'Comprehensive Analytics', desc: 'Review candidate sessions securely anytime with archived video playbacks and detailed performance breakdowns.' },
-						{ icon: '⚡', title: 'Code-Grounded Agent', desc: 'GitHub tools cite file-level evidence. 70% verdict accuracy vs 60% text-only baseline — reproducible via make evaluate.' },
-						{ icon: '🛡', title: 'Fraud Detection', desc: 'Catches 5/5 discrepancy cases baseline misses (1/5) — exaggerated and failed claims with repo evidence.' },
+						{ icon: '01', title: 'Claim audit', desc: 'Every resume claim is checked against real repositories. Verdicts cite the file the agent read.' },
+						{ icon: '02', title: 'Integrity', desc: 'Gaze, a second person in frame, phones, and tab switches are logged on the candidate record.' },
+						{ icon: '03', title: 'Voice interviews', desc: 'Questions are spoken. Candidates answer out loud. Transcripts are scored automatically.' },
+						{ icon: '04', title: 'Session archive', desc: 'Interview video stays with the hiring team. Replay the session when you need a second look.' },
+						{ icon: '05', title: 'Ranked pipeline', desc: 'Composite scores from code evidence and the interview — not a keyword match on the PDF.' },
+						{ icon: '06', title: 'Human in the loop', desc: 'The agent recommends. A recruiter still makes the call, with the citations in front of them.' },
 					].map(f => (
 						<div key={f.title} className="landing-feature">
 							<div className="landing-feature-icon">{f.icon}</div>
@@ -178,11 +173,11 @@ export default function LandingPage() {
 						</thead>
 						<tbody>
 							{[
-								['Resume screening', 'Keyword match only', 'Agent + GitHub code audit'],
-								['Interview', 'Manual scheduling', 'Private AI voice link per candidate'],
-								['Proctoring', 'None', 'AR gaze, tab, multi-face, phone'],
-								['Recordings', 'N/A', 'Company admin only'],
-								['Fraud detection', 'Misses 4/4 test cases', 'Catches all 4/4'],
+								['Resume screening', 'Keyword match only', 'GitHub audit with file citations'],
+								['Interview', 'Calendar ping-pong', 'Private voice interview, on demand'],
+								['Integrity', 'Honor system', 'Gaze, devices, extra faces, tab switches'],
+								['Recordings', 'Scattered or none', 'Held by the hiring company'],
+								['Inflated resumes', 'Usually pass', 'Flagged with evidence'],
 							].map(([cap, ats, zs]) => (
 								<tr key={cap}>
 									<td>{cap}</td>
@@ -198,18 +193,19 @@ export default function LandingPage() {
 			<section className="landing-section" style={{ paddingTop: 0 }}>
 				<div className="landing-cta-banner">
 					<h2>Ready to hire with evidence?</h2>
-					<p>Companies post roles. Candidates apply and interview via their private link.</p>
+					<p>Post a role. Candidates apply and interview on their own time. You review a ranked shortlist.</p>
 					<div style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-						<Link href="/company/login" className="btn btn-primary" style={{ padding: '0.85rem 1.75rem' }}>Company login</Link>
-						<Link href="/apply/devops_job" className="btn btn-secondary" style={{ padding: '0.85rem 1.75rem' }}>Apply as candidate</Link>
+						<Link href="/company/login" className="btn btn-primary" style={{ padding: '0.85rem 1.75rem' }}>Start hiring</Link>
+						<Link href="/apply/devops_job" className="btn btn-secondary" style={{ padding: '0.85rem 1.75rem' }}>Apply for a role</Link>
 					</div>
 				</div>
 			</section>
 
 			<footer className="landing-footer">
 				<div className="landing-footer-links">
-					<Link href="/company/login">Company login</Link>
-					<Link href="/apply/devops_job">Apply</Link>
+					<Link href="/company/login">Sign in</Link>
+					<Link href="/apply/devops_job">Careers</Link>
+					<Link href="/benchmark">Accuracy</Link>
 				</div>
 				<p>© {new Date().getFullYear()} ZaraSourcing</p>
 			</footer>

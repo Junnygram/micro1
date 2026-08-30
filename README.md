@@ -5,7 +5,7 @@
 **Live demo:** https://micro1-production.up.railway.app/demo
 **Judge login:** `demo@zarasourcing.com` / `demo123`
 
-ZaraSourcing screens engineers on **evidence instead of keywords**. It reads a candidate's resume claims, then goes and reads their actual GitHub code to check whether those claims hold up. Candidates then sit a hands-free AI voice interview that is proctored server-side by Amazon Rekognition. The recruiter gets a ranked leaderboard where every score is backed by a citation to a real file and line.
+ZaraSourcing screens engineers on **evidence instead of keywords**. It reads a candidate's resume claims, then goes and reads their actual GitHub code to check whether those claims hold up. Candidates then sit a hands-free AI voice interview that is proctored server-side by Amazon Rekognition. The recruiter gets a ranked leaderboard where every verdict is backed by named evidence — the repo file the agent read, or an explicit note that the claimed work is absent from the account.
 
 ---
 
@@ -137,7 +137,9 @@ Start at **https://micro1-production.up.railway.app/demo** — a guided page tha
 | 2-question voice + AR interview | `/demo` → **Launch demo interview** |
 | Candidate apply flow | `/apply/devops_job` |
 
-**Best single thing to look at:** the recruiter dashboard → **Alex Rivera** (`@riveradevops`). Inflated DevOps resume, caught with file-level citations. The baseline scored him `verified`; the agent scored him `exaggerated` at 45%.
+**Best single thing to look at:** the recruiter dashboard → **Alex Rivera** (`@riveradevops`), scored 45%. He claims *"Expert in writing multi-stage Docker builds and Helm charts"*; the agent read his repos and found no Dockerfiles or Helm templates at all, only empty READMEs. The text-only baseline scored him `verified` — the resume reads well — while the agent scored him `exaggerated`. That single row is the whole thesis.
+
+Because Alex's finding is an *absence* of code, its citation reads `Resume Text` rather than a filename — there is no file to point at. For citations that name a specific file, open **David Kim** (`insecure-auth-demo/auth.py`), **Raj Patel** (`concurrent-ingestor/ingest.go`), or **Olaleye Oyewunmi** (`expense-insights/main.go`). Citations name a file, not a line range.
 
 **For the voice interview:** use **Chrome or Edge** and allow camera + microphone. The 2-question demo takes about 2 minutes. Look away from the screen or switch tabs to see proctoring raise a flag.
 

@@ -930,6 +930,43 @@ func (db *DB) GetInterviewSessionsByJob(jobID string) ([]InterviewSession, error
 	return list, nil
 }
 
+func (db *DB) GetInterviewSessionsByCompany(companyID string) ([]InterviewSession, error) {
+	rows, err := db.Query(`SELECT s.id, s.candidate_id, s.job_id, s.token, s.status, s.interview_score, s.fit_summary, s.answers, s.created_at, s.updated_at
+		FROM interview_sessions s
+		INNER JOIN candidates c ON c.id = s.candidate_id
+		WHERE c.company_id = ?
+		ORDER BY s.interview_score DESC`, companyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []InterviewSession
+	for rows.Next() {
+		var s InterviewSession
+		var tCreate, tUpdate string
+		if err := rows.Scan(&s.ID, &s.CandidateID, &s.JobID, &s.Token, &s.Status, &s.InterviewScore, &s.FitSummary, &s.Answers, &tCreate, &tUpdate); err != nil {
+			return nil, err
+		}
+		s.CreatedAt = parseTimeStr(tCreate)
+		s.UpdatedAt = parseTimeStr(tUpdate)
+		list = append(list, s)
+	}
+	return list, nil
+}
+
+func (db *DB) GetInterviewSessionByCandidate(candidateID string) (*InterviewSession, error) {
+	row := db.QueryRow(`SELECT id, candidate_id, job_id, token, status, interview_score, fit_summary, answers, created_at, updated_at
+		FROM interview_sessions WHERE candidate_id = ? ORDER BY updated_at DESC LIMIT 1`, candidateID)
+	var s InterviewSession
+	var tCreate, tUpdate string
+	if err := row.Scan(&s.ID, &s.CandidateID, &s.JobID, &s.Token, &s.Status, &s.InterviewScore, &s.FitSummary, &s.Answers, &tCreate, &tUpdate); err != nil {
+		return nil, err
+	}
+	s.CreatedAt = parseTimeStr(tCreate)
+	s.UpdatedAt = parseTimeStr(tUpdate)
+	return &s, nil
+}
+
 func (db *DB) CompleteInterviewSession(id string, score int, fitSummary, answers string) error {
 	_, err := db.Exec(`UPDATE interview_sessions SET status='completed', interview_score=?, fit_summary=?, answers=?, updated_at=? WHERE id=?`,
 		score, fitSummary, answers, time.Now(), id)

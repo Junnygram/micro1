@@ -59,7 +59,7 @@ const facePresence: ProctorCheck = {
 	id: 'face_presence',
 	evaluate: (faces) => {
 		if (faces.length === 0) {
-			return { status: 'no_face', label: 'ALIGN FACE', faceCount: 0, gazeOffset: 1, lookingAway: true, checkId: 'face_presence' };
+			return { status: 'no_face', label: 'Face the camera', faceCount: 0, gazeOffset: 1, lookingAway: true, checkId: 'face_presence' };
 		}
 		return null;
 	},
@@ -84,7 +84,7 @@ const gaze: ProctorCheck = {
 		const lookingAway = offset > GAZE_LOCK;
 		return {
 			status: lookingAway ? 'deviation' : 'locked',
-			label: lookingAway ? 'LOOKING AWAY' : 'IN FRAME',
+			label: lookingAway ? 'Looking away' : 'In frame',
 			faceCount: 1,
 			gazeOffset: offset,
 			lookingAway,
@@ -101,13 +101,13 @@ export function evaluateFaces(faces: Landmark[][]): FaceEval {
 		const hit = check.evaluate(faces);
 		if (hit) return hit;
 	}
-	return { status: 'no_face', label: 'ALIGN FACE', faceCount: 0, gazeOffset: 1, lookingAway: true, checkId: 'face_presence' };
+	return { status: 'no_face', label: 'Face the camera', faceCount: 0, gazeOffset: 1, lookingAway: true, checkId: 'face_presence' };
 }
 
 export const STATUS_COPY: Record<FaceStatus, string> = {
-	no_face: 'ALIGN FACE',
-	locked: 'IN FRAME',
-	deviation: 'LOOKING AWAY',
-	multiple_faces: 'SECOND PERSON',
-	phone_detected: 'DEVICE IN FRAME',
+	no_face: 'Face the camera',
+	locked: 'In frame',
+	deviation: 'Looking away',
+	multiple_faces: 'Second person',
+	phone_detected: 'Device in frame',
 };

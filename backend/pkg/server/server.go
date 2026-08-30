@@ -394,10 +394,16 @@ func (s *Server) handleSpeak(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "text is required", http.StatusBadRequest)
 		return
 	}
+	if os.Getenv("AWS_ACCESS_KEY_ID") == "" && os.Getenv("AWS_PROFILE") == "" {
+		http.Error(w, "speech synthesis unavailable", http.StatusServiceUnavailable)
+		return
+	}
 
-	cfg, err := config.LoadDefaultConfig(context.TODO())
+	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+	defer cancel()
+	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
@@ -408,7 +414,7 @@ func (s *Server) handleSpeak(w http.ResponseWriter, r *http.Request) {
 		VoiceId:      ptypes.VoiceIdJoanna,
 	}
 
-	out, err := svc.SynthesizeSpeech(context.TODO(), input)
+	out, err := svc.SynthesizeSpeech(ctx, input)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -512,6 +518,11 @@ func (s *Server) handleCandidateDetail(w http.ResponseWriter, r *http.Request) {
 		"audits":     audits,
 		"steps":      steps,
 		"proctoring": proctoring,
+	}
+	if companyID != "" && companyID == cand.CompanyID {
+		if sess, err := s.DB.GetInterviewSessionByCandidate(candidateID); err == nil {
+			response["interview"] = sess
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1398,11 +1409,17 @@ func (s *Server) handleInterviewSessionsByJob(w http.ResponseWriter, r *http.Req
 		return
 	}
 	jobID := r.URL.Query().Get("job_id")
-	if jobID == "" {
-		http.Error(w, "job_id required", http.StatusBadRequest)
+	companyID := r.URL.Query().Get("company_id")
+	var sessions []db.InterviewSession
+	var err error
+	if companyID != "" {
+		sessions, err = s.DB.GetInterviewSessionsByCompany(companyID)
+	} else if jobID != "" {
+		sessions, err = s.DB.GetInterviewSessionsByJob(jobID)
+	} else {
+		http.Error(w, "job_id or company_id required", http.StatusBadRequest)
 		return
 	}
-	sessions, err := s.DB.GetInterviewSessionsByJob(jobID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1451,13 +1468,25 @@ func (s *Server) handleInterviewComplete(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Build answer transcript for scoring
 	answerText := ""
+	spokenChars := 0
 	for qID, ans := range req.Answers {
-		answerText += fmt.Sprintf("Q%s: %s\n", qID, ans)
+		trimmed := strings.TrimSpace(ans)
+		if trimmed == "" {
+			continue
+		}
+		spokenChars += len(trimmed)
+		answerText += fmt.Sprintf("Q%s: %s\n", qID, trimmed)
 	}
 
-	score, fitSummary := s.scoreInterviewAnswers(req.JobTitle, answerText)
+	var score int
+	var fitSummary string
+	if spokenChars < 20 {
+		score = 0
+		fitSummary = "No spoken answers were recorded. Score is 0 — this is not an AI evaluation."
+	} else {
+		score, fitSummary = s.scoreInterviewAnswers(req.JobTitle, answerText)
+	}
 
 	answerJSON, _ := json.Marshal(req.Answers)
 	if err := s.DB.CompleteInterviewSession(req.SessionID, score, fitSummary, string(answerJSON)); err != nil {
@@ -1903,7 +1932,7 @@ JSON: {"score": <0-100>, "fit_summary": "...", "strengths": "...", "gaps": "..."
 		}
 	}
 
-	return 70, "Interview completed. Scored via fallback (configure AWS Bedrock or Gemini for AI scoring)."
+	return 0, "Scoring unavailable. The hiring team will review the recording. This is not a passing score."
 }
 
 func parseInterviewScoreJSON(text string) (int, string) {

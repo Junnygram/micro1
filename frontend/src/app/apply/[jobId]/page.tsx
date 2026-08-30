@@ -138,7 +138,7 @@ export default function ApplyPage() {
 						<div className="logo-icon" style={{ margin: '0 auto 1.5rem auto', background: 'linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%)' }}>ZS</div>
 						<h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#ffffff', margin: 0 }}>Apply for this role</h3>
 						<p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.5rem' }}>
-							Submit your resume and GitHub. After applying, you&apos;ll receive a link to your AI voice interview with proctored video.
+							Resume and GitHub. After you apply, you&apos;ll get a private link to your voice interview.
 						</p>
 					</div>
 

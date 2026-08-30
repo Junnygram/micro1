@@ -77,6 +77,7 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 	const [showTrajectory, setShowTrajectory] = useState(false);
 	const [trajectoryMd, setTrajectoryMd] = useState('');
 	const [benchmarkCompare, setBenchmarkCompare] = useState<{ target?: string; baseline?: string; agent?: string } | null>(null);
+	const [interviewReview, setInterviewReview] = useState<{ interview_score?: number; fit_summary?: string; status?: string } | null>(null);
 	const [replaySteps, setReplaySteps] = useState<{ type: string; content: string }[]>([]);
 	const [replayIdx, setReplayIdx] = useState(0);
 	const [replaying, setReplaying] = useState(false);
@@ -153,6 +154,7 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 			setCandidate(data.candidate);
 			setSteps(data.steps || []);
 			setAudits(data.audits || []);
+			setInterviewReview(data.interview || null);
 			
 			const proctorLogs = data.proctoring || [];
 			setProctoring(proctorLogs);
@@ -1313,6 +1315,18 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 								</div>
 							)}
 						</div>
+
+						{interviewReview?.status === 'completed' && (
+							<div style={{ marginTop: '1.5rem', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: '0.5rem', padding: '1rem' }}>
+								<p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Interview score</p>
+								<p style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '2rem', color: (interviewReview.interview_score || 0) >= 75 ? '#10b981' : (interviewReview.interview_score || 0) >= 50 ? '#f59e0b' : '#ef4444', margin: 0 }}>
+									{interviewReview.interview_score}%
+								</p>
+								{interviewReview.fit_summary && (
+									<p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.5rem', lineHeight: 1.55 }}>{interviewReview.fit_summary}</p>
+								)}
+							</div>
+						)}
 
 						{/* Playback player */}
 						{candidate.recording_s3_url && companyID && (

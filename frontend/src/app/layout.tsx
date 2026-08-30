@@ -14,11 +14,11 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "ZaraSourcing — Evidence-Based Technical Hiring",
-  description: "AI agent audits GitHub code, runs voice interviews with AR proctoring, and ranks candidates with cited evidence. 60% baseline → 70% agent on 10-case benchmark.",
+  title: "ZaraSourcing — Hire on evidence",
+  description: "Audit GitHub against the resume, run a proctored voice interview, and rank your pipeline with cited scores.",
   openGraph: {
-    title: "ZaraSourcing — Agentic Hiring + Code Audit",
-    description: "Deployable SaaS: code-grounded resume verification, 70% audit accuracy, full hiring pipeline.",
+    title: "ZaraSourcing — Hire on evidence",
+    description: "Code-grounded resume verification, voice interviews, and a ranked hiring desk.",
     type: "website",
   },
 };

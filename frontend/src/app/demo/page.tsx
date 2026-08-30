@@ -76,7 +76,7 @@ const STEPS = [
 	{
 		num: 4,
 		title: 'Company dashboard',
-		desc: 'Jobs, applicants, composite scores, Recruiter AI chat, candidate compare. 10 seeded candidates — Alex at 45%.',
+		desc: 'Jobs, applicants, pipeline status. Interview scores live on Admin. 10 seeded candidates — Alex at 45%.',
 		cta: 'Open hiring desk',
 		href: '/company/login',
 		demoLogin: true,
@@ -94,7 +94,7 @@ const STEPS = [
 	{
 		num: 6,
 		title: 'Voice interview + AR proctoring',
-		desc: 'AI asks out loud, you speak answers, live face mesh on the right. Integrity verdicts come from Amazon Rekognition: hold up a phone and it returns the label with confidence. Also flags a second person, head pose off-screen, and tab switches.',
+		desc: 'The interviewer starts with “tell me about yourself,” then the role questions. Speak your answers. Stay in frame — looking away, a second person, or leaving the tab is logged.',
 		cta: 'Start interview',
 		launchInterview: true,
 		highlight: true,

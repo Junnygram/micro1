@@ -237,8 +237,6 @@ export default function CompanyDashboard() {
 
 	const fraudRiskColor = (risk?: string) => risk === 'high' ? '#ef4444' : risk === 'medium' ? '#f59e0b' : '#10b981';
 
-	const getScoreColor = (score: number) => score >= 75 ? '#10b981' : score >= 50 ? '#f59e0b' : '#ef4444';
-
 	const fileUrl = (path?: string, candidateId?: string) => {
 		if (!path || !company) return '';
 		if (path.startsWith('http')) return path;
@@ -251,8 +249,6 @@ export default function CompanyDashboard() {
 		}
 		return `${apiBase}${path.startsWith('/') ? '' : '/'}${path}`;
 	};
-
-	const completedSessions = sessions.filter(s => s.status === 'completed').sort((a, b) => b.interview_score - a.interview_score);
 
 	if (!company) return null;
 
@@ -270,6 +266,7 @@ export default function CompanyDashboard() {
 					</div>
 				</div>
 				<div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+					<Link href="/company/admin" className="btn btn-secondary" style={{ fontSize: '0.75rem' }}>Admin</Link>
 					<button className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={() => setShowRecruiterChat(!showRecruiterChat)}>
 						{showRecruiterChat ? 'Close copilot' : 'Ask copilot'}
 					</button>
@@ -403,7 +400,7 @@ export default function CompanyDashboard() {
 					<div className="stat-card">
 						<span className="stat-label">Interviews done</span>
 						<span className="stat-value passed">{analytics.interviews_completed}</span>
-						<span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Avg score: {analytics.avg_interview_score}%</span>
+						<span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Completed sessions</span>
 					</div>
 					<div className="stat-card">
 						<span className="stat-label">Audits completed</span>
@@ -434,26 +431,6 @@ export default function CompanyDashboard() {
 									<p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0.15rem 0 0' }}>{stage.label}</p>
 								</div>
 								{i < arr.length - 1 && <span style={{ color: 'var(--text-muted)', fontSize: '1rem' }}>→</span>}
-							</div>
-						))}
-					</div>
-				</div>
-			)}
-
-			{allCandidates.some(c => c.recording_s3_url) && (
-				<div className="panel" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
-					<p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '1rem' }}>Interview recordings</p>
-					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '1rem' }}>
-						{allCandidates.filter(c => c.recording_s3_url).map(c => (
-							<div key={c.id}>
-								<p style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 0.5rem' }}>{c.name}</p>
-								<video
-									src={`${apiBase}/api/recordings/${c.id}?company_id=${company.id}`}
-									controls
-									playsInline
-									preload="metadata"
-									style={{ width: '100%', borderRadius: '0.5rem', background: '#000', maxHeight: 200 }}
-								/>
 							</div>
 						))}
 					</div>
@@ -551,43 +528,6 @@ export default function CompanyDashboard() {
 								)}
 							</div>
 
-							{/* AI Interview Leaderboard */}
-							{completedSessions.length > 0 && (
-								<div className="panel" style={{ padding: '1.5rem' }}>
-									<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-										<div>
-											<h3 style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text-primary)', margin: 0 }}>AI Interview Rankings</h3>
-											<p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{completedSessions.length} candidates interviewed — ranked by AI fit score</p>
-										</div>
-									</div>
-									{completedSessions.map((s, idx) => {
-										const cand = candidates.find(c => c.id === s.candidate_id);
-										return (
-											<div key={s.id} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', padding: '1rem', background: idx === 0 ? 'rgba(16,185,129,0.05)' : 'rgba(255,255,255,0.02)', border: `1px solid ${idx === 0 ? 'rgba(16,185,129,0.2)' : 'var(--border-color)'}`, borderRadius: '0.5rem', marginBottom: '0.75rem' }}>
-												<div style={{ width: '36px', height: '36px', borderRadius: '50%', background: idx === 0 ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.9rem', color: idx === 0 ? '#10b981' : 'var(--text-muted)', flexShrink: 0 }}>
-													#{idx + 1}
-												</div>
-												<div style={{ flex: 1, minWidth: 0 }}>
-													<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-														<p style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)', margin: 0 }}>{cand?.name || 'Candidate'}</p>
-														<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-															<span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '1.1rem', color: getScoreColor(s.interview_score) }}>{s.interview_score}%</span>
-															<span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: '0.25rem', background: s.interview_score >= 75 ? 'rgba(16,185,129,0.15)' : s.interview_score >= 50 ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)', color: getScoreColor(s.interview_score), fontWeight: 700 }}>
-																{s.interview_score >= 75 ? 'STRONG FIT' : s.interview_score >= 50 ? 'POSSIBLE FIT' : 'NOT A FIT'}
-															</span>
-															{cand && (
-																<Link href={`/candidate/${cand.id}`} className="btn btn-secondary" style={{ fontSize: '0.7rem', padding: '0.2rem 0.6rem' }}>🔍 Quick Audit</Link>
-															)}
-														</div>
-													</div>
-													<p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.35rem 0 0 0', lineHeight: '1.5' }}>{s.fit_summary}</p>
-												</div>
-											</div>
-										);
-									})}
-								</div>
-							)}
-
 							{/* Applicants table */}
 							<div className="panel" style={{ padding: '1.5rem' }}>
 								<h3 style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)', marginBottom: '1rem' }}>
@@ -606,7 +546,6 @@ export default function CompanyDashboard() {
 										}).map(c => {
 											const session = sessions.find(s => s.candidate_id === c.id);
 											const isDemoHighlight = c.github_username === 'riveradevops';
-											const overall = compositeScore(c, session);
 											const isShortlisted = shortlist.includes(c.id);
 											return (
 												<div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: isDemoHighlight ? 'rgba(16,185,129,0.05)' : isShortlisted ? 'rgba(16,185,129,0.03)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isDemoHighlight ? 'rgba(16,185,129,0.35)' : isShortlisted ? 'rgba(16,185,129,0.2)' : 'var(--border-color)'}`, borderRadius: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -630,10 +569,9 @@ export default function CompanyDashboard() {
 													</div>
 													<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
 														<div style={{ textAlign: 'right' }}>
-															<p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: 0 }}>Overall fit</p>
-															<span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: getScoreColor(overall), fontSize: '1rem' }}>{overall > 0 ? `${overall}%` : '—'}</span>
-															<p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.1rem 0 0' }}>
-																Audit {c.sourcing_score || '—'} · Interview {session?.status === 'completed' ? `${session.interview_score}%` : '—'}
+															<p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: 0 }}>Status</p>
+															<p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0.15rem 0 0' }}>
+																{session?.status === 'completed' ? 'Interviewed' : c.status === 'completed' ? 'Audited' : 'Applied'}
 															</p>
 														</div>
 														<button

@@ -74,21 +74,24 @@ export default function InterviewPage() {
 	const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const accumulatedRef = useRef('');
+	const committedRef = useRef('');
 	const listenModeRef = useRef<'intro' | 'question' | 'confirm'>('intro');
 	const listenQuestionIdxRef = useRef(0);
 	const pendingAdvanceRef = useRef<'intro' | number>('intro');
 	const lastSpeechAtRef = useRef(0);
+	const isSpeakingRef = useRef(false);
+	const pollyOkRef = useRef<boolean | null>(null);
 	const [awaitingConfirm, setAwaitingConfirm] = useState(false);
 	const awaitingConfirmRef = useRef(false);
 
-	// Intro phase: track if greeting has been spoken
 	const greetingDoneRef = useRef(false);
+	const [onIntro, setOnIntro] = useState(true);
 	const [cameraReady, setCameraReady] = useState(false);
 	const [isDemoMode, setIsDemoMode] = useState(false);
 
-	const silenceBeforePromptMs = isDemoMode ? 8000 : 15000;
+	const silenceBeforePromptMs = isDemoMode ? 7000 : 12000;
 	const maxAnswerMs = isDemoMode ? 45000 : 120000;
-	const silenceAutoAdvanceMs = isDemoMode ? 6000 : 10000;
+	const silenceAutoAdvanceMs = isDemoMode ? 8000 : 12000;
 
 	const apiBase = getApiBase();
 
@@ -118,11 +121,18 @@ export default function InterviewPage() {
 		return t.length > 12 && !saysAdvance(t) && !/\b(no|wait|hold on|not yet|one moment)\b/.test(t);
 	};
 
+	const setSpeaking = (v: boolean) => {
+		isSpeakingRef.current = v;
+		setIsSpeaking(v);
+	};
+
 	const scheduleSilencePrompt = () => {
 		if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+		const spoken = accumulatedRef.current.trim().length;
+		const delay = spoken > 24 ? silenceBeforePromptMs * 2 : silenceBeforePromptMs;
 		silenceTimerRef.current = setTimeout(() => {
 			promptContinueToNext();
-		}, silenceBeforePromptMs);
+		}, delay);
 	};
 
 	const saveCurrentAnswer = () => {
@@ -190,6 +200,7 @@ export default function InterviewPage() {
 		awaitingConfirmRef.current = false;
 		setAwaitingConfirm(false);
 		greetingDoneRef.current = true;
+		setOnIntro(false);
 		clearListenTimers();
 		stopRecognition();
 		saveCurrentAnswer();
@@ -207,7 +218,7 @@ export default function InterviewPage() {
 	};
 
 	const promptContinueToNext = async () => {
-		if (awaitingConfirmRef.current || isSpeaking) return;
+		if (awaitingConfirmRef.current || isSpeakingRef.current) return;
 		pendingAdvanceRef.current = listenModeRef.current === 'intro'
 			? 'intro'
 			: listenQuestionIdxRef.current;
@@ -221,12 +232,15 @@ export default function InterviewPage() {
 		const questionText = pending === 'intro'
 			? 'Can you tell me about yourself?'
 			: (questions[typeof pending === 'number' ? pending : listenQuestionIdxRef.current]?.question || '');
-		const prompt = questionText
-			? `I didn't hear an answer. Let me repeat the question. ${questionText} If you're finished, say yes and I'll move on. If you need more time, keep speaking.`
-			: "I didn't hear anything. Should I move to the next question? Say yes to continue, or keep speaking.";
-		setIsSpeaking(true);
+		const hadAnswer = accumulatedRef.current.trim().length > 20;
+		const prompt = hadAnswer
+			? 'If you are finished, say yes. If you want more time, keep speaking.'
+			: (questionText
+				? `I didn't hear you. ${questionText} Say yes for the next question, or keep answering.`
+				: 'I did not hear you. Say yes for the next question, or keep speaking.');
+		setSpeaking(true);
 		await speak(prompt, () => {
-			setIsSpeaking(false);
+			setSpeaking(false);
 			startConfirmListening();
 		});
 	};
@@ -247,40 +261,52 @@ export default function InterviewPage() {
 
 		recognition.onresult = (event: any) => {
 			let t = '';
-			for (let i = event.resultIndex; i < event.results.length; i++) t += event.results[i][0].transcript;
-			heard = t.trim();
+			for (let i = 0; i < event.results.length; i++) t += event.results[i][0].transcript;
+			heard = t.replace(/\s+/g, ' ').trim();
 			setTranscript(heard);
 			lastSpeechAtRef.current = Date.now();
 			if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
 			confirmTimerRef.current = setTimeout(() => {
 				if (listenModeRef.current !== 'confirm') return;
 				if (saysAdvance(heard)) finishConfirmAdvance();
-				else if (saysStillAnswering(heard)) {
+				else if (saysStillAnswering(heard) || heard.length > 8) {
 					awaitingConfirmRef.current = false;
 					setAwaitingConfirm(false);
-					accumulatedRef.current = heard;
+					const merged = `${committedRef.current} ${heard}`.replace(/\s+/g, ' ').trim();
+					committedRef.current = merged;
+					accumulatedRef.current = merged;
 					stopRecognition();
-					if (pendingAdvanceRef.current === 'intro') startListeningForGreeting();
-					else startListening(pendingAdvanceRef.current as number);
+					if (pendingAdvanceRef.current === 'intro') startAnswerListening('intro', 0, true);
+					else startAnswerListening('question', pendingAdvanceRef.current as number, true);
 				}
-			}, 2500);
+			}, 2200);
 		};
 
 		recognition.onend = () => {
-			if (listenModeRef.current === 'confirm') setIsListening(false);
+			if (listenModeRef.current !== 'confirm' || !activeRef.current) {
+				setIsListening(false);
+				return;
+			}
+			try {
+				recognition.start();
+				setIsListening(true);
+			} catch {
+				setIsListening(false);
+			}
 		};
 
 		recognitionRef.current = recognition;
-		recognition.start();
+		try { recognition.start(); } catch { /* already started */ }
 		setIsListening(true);
 
 		confirmTimerRef.current = setTimeout(() => {
 			if (listenModeRef.current !== 'confirm') return;
+			if (accumulatedRef.current.trim().length > 24) return;
 			finishConfirmAdvance();
 		}, silenceAutoAdvanceMs);
 	};
 
-	const startAnswerListening = (mode: 'intro' | 'question', questionIdx = 0) => {
+	const startAnswerListening = (mode: 'intro' | 'question', questionIdx = 0, resume = false) => {
 		const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 		if (!SR) {
 			if (mode === 'intro') { advanceFromIntro(); return; }
@@ -295,23 +321,41 @@ export default function InterviewPage() {
 
 		listenModeRef.current = mode;
 		listenQuestionIdxRef.current = questionIdx;
-		accumulatedRef.current = '';
+		if (!resume) {
+			accumulatedRef.current = '';
+			committedRef.current = '';
+			setTranscript('');
+		}
 		lastSpeechAtRef.current = Date.now();
 
 		const recognition = new SR();
 		recognition.continuous = true;
 		recognition.interimResults = true;
 		recognition.lang = 'en-US';
+		let lastFinalCount = 0;
 
 		recognition.onresult = (event: any) => {
-			let t = '';
-			for (let i = event.resultIndex; i < event.results.length; i++) t += event.results[i][0].transcript;
+			let interim = '';
+			let finalsSeen = 0;
+			for (let i = 0; i < event.results.length; i++) {
+				const piece = event.results[i][0].transcript;
+				if (event.results[i].isFinal) {
+					if (i >= lastFinalCount) {
+						committedRef.current = `${committedRef.current} ${piece}`.replace(/\s+/g, ' ').trim();
+					}
+					finalsSeen += 1;
+				} else {
+					interim += piece;
+				}
+			}
+			lastFinalCount = finalsSeen;
+			const t = `${committedRef.current} ${interim}`.replace(/\s+/g, ' ').trim();
 			accumulatedRef.current = t;
 			setTranscript(t);
 			lastSpeechAtRef.current = Date.now();
 			scheduleSilencePrompt();
 
-			if (mode === 'question' && saysAdvance(t) && t.trim().length < 40) {
+			if (mode === 'question' && saysAdvance(t) && t.trim().length < 28) {
 				setTimeout(() => {
 					if (listenModeRef.current === 'question') advanceAfterQuestion(questionIdx);
 				}, 800);
@@ -319,15 +363,23 @@ export default function InterviewPage() {
 		};
 
 		recognition.onend = () => {
-			if (listenModeRef.current === 'question' || listenModeRef.current === 'intro') {
+			lastFinalCount = 0;
+			if (listenModeRef.current !== mode || awaitingConfirmRef.current || !activeRef.current) {
+				setIsListening(false);
+				return;
+			}
+			try {
+				recognition.start();
+				setIsListening(true);
+			} catch {
 				setIsListening(false);
 			}
 		};
 
 		recognitionRef.current = recognition;
-		recognition.start();
+		try { recognition.start(); } catch { /* already started */ }
 		setIsListening(true);
-		setIsSpeaking(false);
+		setSpeaking(false);
 		scheduleSilencePrompt();
 
 		listenTimerRef.current = setTimeout(() => {
@@ -409,28 +461,25 @@ export default function InterviewPage() {
 	const startInterview = async () => {
 		setPhase('interview');
 		greetingDoneRef.current = false;
+		setOnIntro(true);
 		await startCamera();
 		speakGreeting();
 	};
 
-	const speakGreeting = async () => {
-		if (greetingDoneRef.current) { speakQuestion(0); return; }
-		setIsSpeaking(true);
-		setTranscript('');
+	const speakGreeting = async (resume = false) => {
+		if (greetingDoneRef.current) { speakQuestion(0, resume); return; }
+		setSpeaking(true);
 		const greeting = 'Hello, how are you doing? Can you tell me about yourself?';
 		await speak(greeting, () => {
-			startListeningForGreeting();
+			startAnswerListening('intro', 0, resume);
 		});
-	};
-
-	const startListeningForGreeting = () => {
-		startAnswerListening('intro');
 	};
 
 	const speakBrowser = (text: string, onDone: () => void) => {
 		if (window.speechSynthesis) {
 			window.speechSynthesis.cancel();
 			const utt = new SpeechSynthesisUtterance(text);
+			utt.rate = 1;
 			utt.onend = onDone;
 			utt.onerror = onDone;
 			window.speechSynthesis.speak(utt);
@@ -440,12 +489,34 @@ export default function InterviewPage() {
 	};
 
 	const speak = async (text: string, onDone: () => void) => {
+		if (pollyOkRef.current === false) {
+			speakBrowser(text, onDone);
+			return;
+		}
 		try {
-			const audio = new Audio(`${apiBase}/api/speak?text=${encodeURIComponent(text)}`);
-			audio.onended = onDone;
-			audio.onerror = () => speakBrowser(text, onDone);
+			const ctrl = new AbortController();
+			const timer = window.setTimeout(() => ctrl.abort(), 1800);
+			const res = await fetch(`${apiBase}/api/speak?text=${encodeURIComponent(text)}`, { signal: ctrl.signal });
+			window.clearTimeout(timer);
+			if (!res.ok) {
+				pollyOkRef.current = false;
+				speakBrowser(text, onDone);
+				return;
+			}
+			const blob = await res.blob();
+			if (!blob.size || !(blob.type || '').startsWith('audio')) {
+				pollyOkRef.current = false;
+				speakBrowser(text, onDone);
+				return;
+			}
+			pollyOkRef.current = true;
+			const url = URL.createObjectURL(blob);
+			const audio = new Audio(url);
+			audio.onended = () => { URL.revokeObjectURL(url); onDone(); };
+			audio.onerror = () => { URL.revokeObjectURL(url); speakBrowser(text, onDone); };
 			await audio.play();
 		} catch {
+			pollyOkRef.current = false;
 			speakBrowser(text, onDone);
 		}
 	};
@@ -585,9 +656,10 @@ export default function InterviewPage() {
 						const boxColor = isLocked ? '#10b981' : '#ef4444';
 
 						ctx.fillStyle = meshColor;
-						for (const lm of lms) {
+						for (let i = 0; i < lms.length; i += 3) {
+							const lm = lms[i];
 							ctx.beginPath();
-							ctx.arc(lm.x * w, lm.y * h, 1.1, 0, Math.PI * 2);
+							ctx.arc(lm.x * w, lm.y * h, 1.05, 0, Math.PI * 2);
 							ctx.fill();
 						}
 
@@ -600,25 +672,6 @@ export default function InterviewPage() {
 						ctx.strokeStyle = boxColor;
 						ctx.lineWidth = 2;
 						ctx.strokeRect(bx, by, bw, bh);
-
-						// Status label
-						ctx.fillStyle = isLocked ? 'rgba(16,185,129,0.85)' : 'rgba(239,68,68,0.85)';
-						ctx.fillRect(bx, by - 22, 110, 18);
-						ctx.fillStyle = '#fff';
-						ctx.font = 'bold 10px monospace';
-						ctx.fillText(STATUS_COPY[holdingRekog ? 'phone_detected' : evaled.status] || evaled.label, bx + 4, by - 9);
-
-						// Overlay the most recent Amazon Rekognition finding
-						const verdict = rekognitionRef.current;
-						if (verdict && verdict.verdict === 'device_detected' && verdict.flagged?.length) {
-							const top = verdict.flagged[0];
-							const caption = `${top.label.toUpperCase()} ${top.confidence.toFixed(0)}%`;
-							ctx.fillStyle = 'rgba(245,158,11,0.92)';
-							ctx.fillRect(bx, by + bh + 4, Math.max(150, caption.length * 7 + 16), 18);
-							ctx.fillStyle = '#fff';
-							ctx.font = 'bold 10px monospace';
-							ctx.fillText(caption, bx + 4, by + bh + 16);
-						}
 					} else {
 						if (Date.now() >= rekogHoldUntilRef.current) setFaceStatus('no_face');
 						if (!lookAwayStartRef.current) lookAwayStartRef.current = Date.now();
@@ -669,34 +722,27 @@ export default function InterviewPage() {
 		streamRef.current = null;
 	};
 
-	const speakQuestion = async (idx: number) => {
+	const speakQuestion = async (idx: number, resume = false) => {
 		if (!questions[idx]) {
 			submitInterview(answersRef.current);
 			return;
 		}
-		setIsSpeaking(true);
+		setSpeaking(true);
 		setIsListening(false);
-		setTranscript('');
+		if (!resume) setTranscript('');
 		clearListenTimers();
 		stopRecognition();
 
-		const text = isDemoMode
-			? questions[idx].question
-			: `Question ${idx + 1}: ${questions[idx].question}`;
-		await speak(text, () => { setIsSpeaking(false); startListening(idx); });
-	};
-
-	const startListening = (idx: number) => {
-		startAnswerListening('question', idx);
+		const text = questions[idx].question;
+		await speak(text, () => { setSpeaking(false); startAnswerListening('question', idx, resume); });
 	};
 
 	const saveAndNext = () => {
-		if (pendingAdvanceRef.current === 'intro' || listenModeRef.current === 'intro') advanceFromIntro();
+		if (onIntro || listenModeRef.current === 'intro' || pendingAdvanceRef.current === 'intro') advanceFromIntro();
 		else advanceAfterQuestion(listenQuestionIdxRef.current);
 	};
 
 	const currentQ = questions[currentIdx];
-	const progress = questions.length > 0 ? (currentIdx / questions.length) * 100 : 0;
 
 	if (phase === 'loading') return (
 		<div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -719,33 +765,10 @@ export default function InterviewPage() {
 
 	if (phase === 'done') return (
 		<div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
-			<div className="panel" style={{ maxWidth: '560px', width: '100%', padding: '2.5rem', textAlign: 'center' }}>
-				<p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.75rem' }}>Submitted</p>
-				<h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Thank you</h2>
-				<p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '2rem', lineHeight: 1.6 }}>Your answers and session recording are with the hiring team. They&apos;ll be in touch.</p>
-				<div style={{ padding: '1.5rem', background: 'rgba(99,102,241,0.05)', border: '1px solid var(--border-color)', borderRadius: '0.75rem', marginBottom: '1.5rem' }}>
-					<p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Interview score</p>
-					<p style={{ fontSize: '3.5rem', fontWeight: 900, fontFamily: 'var(--font-mono)', color: finalScore >= 75 ? '#10b981' : finalScore >= 50 ? '#f59e0b' : '#ef4444', margin: 0 }}>{finalScore}%</p>
-					<p style={{ fontSize: '0.8rem', marginTop: '0.5rem', fontWeight: 700, color: finalScore >= 75 ? '#10b981' : finalScore >= 50 ? '#f59e0b' : '#ef4444' }}>
-						{finalScore >= 75 ? 'Strong fit' : finalScore >= 50 ? 'Possible fit' : 'Not a fit'}
-					</p>
-				</div>
-				{fitSummary && (
-					<div style={{ padding: '1.25rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '0.5rem', textAlign: 'left' }}>
-						<p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.5rem', textTransform: 'uppercase' }}>Feedback</p>
-						<p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>{fitSummary}</p>
-					</div>
-				)}
-				{(recordingPreview || recordingSaved) && (
-					<div style={{ marginTop: '1.5rem', textAlign: 'left' }}>
-						<p style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.65rem' }}>
-							{recordingSaved ? 'Interview recording saved' : 'Interview recording'}
-						</p>
-						{recordingPreview && (
-							<video src={recordingPreview} controls playsInline style={{ width: '100%', borderRadius: '0.5rem', background: '#000', maxHeight: 240 }} />
-						)}
-					</div>
-				)}
+			<div className="panel" style={{ maxWidth: '440px', width: '100%', padding: '2.75rem 2.25rem', textAlign: 'center' }}>
+				<div className="logo-icon" style={{ margin: '0 auto 1.25rem', background: 'linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%)' }}>ZS</div>
+				<h2 style={{ fontSize: '1.65rem', fontWeight: 800, marginBottom: '0.6rem' }}>Interview complete</h2>
+				<p style={{ color: 'var(--text-secondary)', fontSize: '1rem', lineHeight: 1.6, margin: 0 }}>You can now exit this page.</p>
 			</div>
 		</div>
 	);
@@ -754,7 +777,7 @@ export default function InterviewPage() {
 		<div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
 			<div style={{ textAlign: 'center' }}>
 				<div style={{ width: '48px', height: '48px', border: '3px solid var(--border-color)', borderTopColor: 'var(--color-accent)', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 1rem auto' }} />
-				<p style={{ color: 'var(--text-secondary)' }}>Scoring your interview…</p>
+				<p style={{ color: 'var(--text-secondary)' }}>Saving your session…</p>
 			</div>
 		</div>
 	);
@@ -795,150 +818,73 @@ export default function InterviewPage() {
 		);
 	}
 
-	// Interview phase
-	const isGreetingPhase = !greetingDoneRef.current || (currentIdx === 0 && isSpeaking && questions.length > 0);
+	const totalSteps = questions.length + 1;
+	const stepNum = onIntro ? 1 : currentIdx + 2;
+	const stepProgress = (stepNum / totalSteps) * 100;
+	const statusLine = isSpeaking ? 'The interviewer is speaking' : isListening ? (awaitingConfirm ? 'Say yes for the next question' : 'Listening — speak your answer') : 'Ready';
 
 	return (
 		<div className="interview-grid">
-			{/* Left — question + transcript */}
-			<div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-				{/* Progress */}
+			<div style={{ padding: '1.75rem 1.75rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 				<div>
+					<p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.04em', margin: '0 0 0.85rem' }}>
+						{candidate?.name ? `${candidate.name}` : 'Interview'}{candidate?.role ? ` · ${candidate.role}` : ''}
+					</p>
 					<div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-						<span>{greetingDoneRef.current ? `Question ${currentIdx + 1} of ${questions.length}` : 'Introduction'}</span>
-						<span style={{ color: isListening ? '#10b981' : isSpeaking ? 'var(--color-accent)' : 'var(--text-muted)', fontWeight: 600 }}>
-							{isSpeaking ? 'Speaking' : isListening ? (awaitingConfirm ? 'Waiting for confirmation' : 'Listening') : ''}
-						</span>
+						<span>{onIntro ? 'Introduction' : `Question ${currentIdx + 1} of ${questions.length}`}</span>
+						<span>{stepNum} / {totalSteps}</span>
 					</div>
-					<div style={{ height: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '2px', overflow: 'hidden' }}>
-						<div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg, var(--color-accent), #a855f7)', transition: 'width 0.5s ease', borderRadius: '2px' }} />
+					<div style={{ height: '3px', background: 'rgba(255,255,255,0.06)', borderRadius: '2px', overflow: 'hidden' }}>
+						<div style={{ height: '100%', width: `${stepProgress}%`, background: 'var(--color-accent)', transition: 'width 0.4s ease' }} />
 					</div>
 				</div>
 
-				{/* Question card */}
-				<div style={{ padding: '2rem', background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '0.75rem' }}>
-					<p style={{ fontSize: '0.75rem', color: 'var(--color-accent)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
-						{greetingDoneRef.current ? `Question ${currentIdx + 1}` : 'Introduction'}
+				<div style={{ padding: '1.75rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '0.85rem' }}>
+					<p style={{ fontSize: '0.72rem', color: 'var(--color-accent)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.65rem' }}>
+						{onIntro ? 'To start' : `Question ${currentIdx + 1}`}
 					</p>
-					<p style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: '1.5' }}>
-						{greetingDoneRef.current ? currentQ?.question : 'Hello, how are you doing? Can you tell me about yourself?'}
+					<p style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.45, margin: 0 }}>
+						{onIntro ? 'Hello, how are you doing? Can you tell me about yourself?' : currentQ?.question}
 					</p>
 				</div>
 
-				{/* Live transcript */}
-				<div style={{ flex: 1, padding: '1.5rem', background: 'rgba(255,255,255,0.02)', border: `1px solid ${isListening ? 'rgba(16,185,129,0.3)' : 'var(--border-color)'}`, borderRadius: '0.75rem', transition: 'border-color 0.3s', minHeight: '160px' }}>
-					<p style={{ fontSize: '0.75rem', color: isListening ? '#10b981' : 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
-						{isListening ? '● Transcribing' : 'Your answer'}
+				<div style={{ flex: 1, padding: '1.25rem 1.4rem', background: '#09070a', border: `1px solid ${isListening ? 'rgba(16,185,129,0.35)' : 'var(--border-color)'}`, borderRadius: '0.85rem', minHeight: '150px' }}>
+					<p style={{ fontSize: '0.72rem', color: isListening ? '#10b981' : 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.04em', marginBottom: '0.65rem' }}>
+						{statusLine}
 					</p>
-					{transcript ? (
-						<p style={{ fontSize: '1rem', color: 'var(--text-primary)', lineHeight: '1.7' }}>{transcript}</p>
-					) : (
-						<p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', fontStyle: 'italic' }}>
-							{isSpeaking ? 'Listen to the question…' : isListening ? 'Speak your answer. Pause when you are done.' : 'Waiting…'}
-						</p>
-					)}
+					<p style={{ fontSize: '1.05rem', color: transcript ? 'var(--text-primary)' : 'var(--text-muted)', lineHeight: 1.65, margin: 0 }}>
+						{transcript || (isSpeaking ? 'Listen…' : 'Your answer will appear here as you speak.')}
+					</p>
 				</div>
 
-				<div style={{ display: 'flex', gap: '0.75rem' }}>
-					<button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => {
-						if (!greetingDoneRef.current) speakGreeting();
-						else speakQuestion(currentIdx);
-					}} disabled={isSpeaking}>
-						Repeat question
+				<div style={{ display: 'flex', gap: '0.65rem' }}>
+					<button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => onIntro ? speakGreeting(true) : speakQuestion(currentIdx, true)} disabled={isSpeaking}>
+						Repeat
 					</button>
-					<button className="btn btn-primary" style={{ flex: 1, fontSize: '0.85rem' }} onClick={saveAndNext} disabled={isSpeaking}>
-						Next question
+					<button className="btn btn-primary" style={{ flex: 1 }} onClick={saveAndNext} disabled={isSpeaking}>
+						{onIntro || currentIdx < questions.length - 1 ? 'Next' : 'Finish'}
 					</button>
 				</div>
 			</div>
 
-			{/* Right — webcam + AR */}
-			<div style={{ background: '#09070a', borderLeft: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', padding: '1.5rem', gap: '1rem' }}>
-				<div style={{ position: 'relative', borderRadius: '0.75rem', overflow: 'hidden', background: '#000', aspectRatio: '4/3', border: `2px solid ${faceStatus === 'locked' ? '#10b981' : faceStatus === 'deviation' ? '#ef4444' : faceStatus === 'multiple_faces' ? '#a855f7' : faceStatus === 'phone_detected' ? '#f59e0b' : 'var(--border-color)'}`, transition: 'border-color 0.3s' }}>
+			<div style={{ background: '#07080c', borderLeft: '1px solid var(--border-color)', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+				<div style={{ position: 'relative', borderRadius: '0.85rem', overflow: 'hidden', background: '#000', aspectRatio: '4/3', border: `2px solid ${faceStatus === 'locked' ? '#10b981' : faceStatus === 'deviation' || faceStatus === 'no_face' ? '#ef4444' : faceStatus === 'multiple_faces' ? '#a855f7' : faceStatus === 'phone_detected' ? '#f59e0b' : 'var(--border-color)'}` }}>
 					<video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
 					<canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', transform: 'scaleX(-1)' }} />
-					<div style={{ position: 'absolute', top: '8px', left: '10px', display: 'flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(0,0,0,0.7)', padding: '0.2rem 0.5rem', borderRadius: '0.25rem' }}>
-						{cameraReady && (
-							<>
-								<span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ef4444', animation: 'pulseStatus 1.5s infinite' }} />
-								<span style={{ fontSize: '0.6rem', color: '#fca5a5', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>REC</span>
-							</>
-						)}
-					</div>
-					<div style={{ position: 'absolute', bottom: '8px', left: '50%', transform: 'translateX(-50%)', background: faceStatus === 'locked' ? 'rgba(16,185,129,0.85)' : faceStatus === 'deviation' ? 'rgba(239,68,68,0.85)' : faceStatus === 'multiple_faces' ? 'rgba(168,85,247,0.9)' : faceStatus === 'phone_detected' ? 'rgba(245,158,11,0.9)' : 'rgba(100,116,139,0.85)', padding: '0.2rem 0.65rem', borderRadius: '0.25rem', fontSize: '0.65rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#fff' }}>
+					{cameraReady && (
+						<div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(0,0,0,0.65)', padding: '0.2rem 0.5rem', borderRadius: '0.25rem' }}>
+							<span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', animation: 'pulseStatus 1.5s infinite' }} />
+							<span style={{ fontSize: '0.6rem', color: '#fca5a5', fontWeight: 700, letterSpacing: '0.06em' }}>REC</span>
+						</div>
+					)}
+					<div style={{ position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)', background: faceStatus === 'locked' ? 'rgba(16,185,129,0.9)' : 'rgba(0,0,0,0.7)', padding: '0.28rem 0.7rem', borderRadius: '999px', fontSize: '0.68rem', fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>
 						{STATUS_COPY[faceStatus]}
 					</div>
 				</div>
-
-				<div style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '0.5rem' }}>
-					<p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Session</p>
-					<div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.8rem' }}>
-						<div style={{ display: 'flex', justifyContent: 'space-between' }}>
-							<span style={{ color: 'var(--text-secondary)' }}>Voice</span>
-							<span style={{ color: isSpeaking ? 'var(--color-accent)' : 'var(--text-muted)' }}>{isSpeaking ? '● Speaking' : '○ Idle'}</span>
-						</div>
-						<div style={{ display: 'flex', justifyContent: 'space-between' }}>
-							<span style={{ color: 'var(--text-secondary)' }}>Microphone</span>
-							<span style={{ color: isListening ? '#10b981' : 'var(--text-muted)' }}>{isListening ? '● Listening' : '○ Standby'}</span>
-						</div>
-						<div style={{ display: 'flex', justifyContent: 'space-between' }}>
-							<span style={{ color: 'var(--text-secondary)' }}>Camera</span>
-							<span style={{ color: faceStatus === 'locked' ? '#10b981' : faceStatus === 'deviation' ? '#ef4444' : faceStatus === 'multiple_faces' ? '#a855f7' : faceStatus === 'phone_detected' ? '#f59e0b' : 'var(--text-muted)' }}>
-								{faceStatus === 'locked' ? '● In frame' : faceStatus === 'deviation' ? '● Looking away' : faceStatus === 'multiple_faces' ? '● Second person' : faceStatus === 'phone_detected' ? '● Device' : '○ Waiting'}
-							</span>
-						</div>
-						{(arAlerts.multipleFaces > 0 || arAlerts.phone > 0) && (
-							<div style={{ display: 'flex', justifyContent: 'space-between' }}>
-								<span style={{ color: 'var(--text-secondary)' }}>Flags</span>
-								<span style={{ color: '#f59e0b', fontSize: '0.75rem' }}>
-									{arAlerts.multipleFaces > 0 && `${arAlerts.multipleFaces} extra face`}
-									{arAlerts.multipleFaces > 0 && arAlerts.phone > 0 && ' · '}
-									{arAlerts.phone > 0 && `${arAlerts.phone} device`}
-								</span>
-							</div>
-						)}
-						<div style={{ display: 'flex', justifyContent: 'space-between' }}>
-							<span style={{ color: 'var(--text-secondary)' }}>Tab switches</span>
-							<span style={{ color: tabSwitchCount > 0 ? '#ef4444' : 'var(--text-muted)' }}>{tabSwitchCount}</span>
-						</div>
-					</div>
-				</div>
-
-				<div style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '0.5rem' }}>
-					<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-						<p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', margin: 0, letterSpacing: '0.03em' }}>Integrity</p>
-						<span style={{ fontSize: '0.65rem', fontFamily: 'var(--font-mono)', color: faceStatus === 'locked' ? '#10b981' : '#f59e0b' }}>
-							{rekognition?.provider === 'aws_rekognition'
-								? (rekognition.verdict === 'ok' ? 'Clear' : rekognition.verdict.replace(/_/g, ' '))
-								: (faceStatus === 'locked' ? 'Clear' : 'Review')}
-						</span>
-					</div>
-					{rekognition?.provider === 'aws_rekognition' ? (
-						<div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.75rem' }}>
-							<div style={{ display: 'flex', justifyContent: 'space-between' }}>
-								<span style={{ color: 'var(--text-secondary)' }}>Faces</span>
-								<span style={{ fontFamily: 'var(--font-mono)', color: rekognition.face_count === 1 ? '#10b981' : '#f59e0b' }}>{rekognition.face_count ?? 0}</span>
-							</div>
-							{rekognition.flagged && rekognition.flagged.length > 0 && (
-								<div style={{ marginTop: '0.35rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)' }}>
-									{rekognition.flagged.slice(0, 3).map(f => (
-										<div key={f.label} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: '0.7rem' }}>
-											<span style={{ color: '#f59e0b' }}>{f.label}</span>
-											<span style={{ color: '#f59e0b' }}>{f.confidence.toFixed(0)}%</span>
-										</div>
-									))}
-								</div>
-							)}
-						</div>
-					) : (
-						<p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.45 }}>
-							Gaze, extra faces, devices, and tab switches are logged on this session.
-						</p>
-					)}
-				</div>
-
-				<p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.45 }}>
-					This is a recorded, proctored interview. Findings are attached to your candidate file.
+				<p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.45 }}>
+					Stay in frame. This session is recorded. Looking away, a second person, or leaving the tab is logged for the hiring team.
+					{tabSwitchCount > 0 ? ` Tab switches: ${tabSwitchCount}.` : ''}
+					{(arAlerts.multipleFaces > 0 || arAlerts.phone > 0) ? ' Integrity flags were raised.' : ''}
 				</p>
 			</div>
 		</div>
