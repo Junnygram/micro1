@@ -1,19 +1,19 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 
 interface Job {
 	id: string;
 	title: string;
 	description: string;
+	company_id: string;
 	created_at: string;
 }
 
 export default function ApplyPage() {
 	const params = useParams();
-	const router = useRouter();
 	const initialJobId = params.jobId as string;
 
 	const [jobs, setJobs] = useState<Job[]>([]);
@@ -27,6 +27,7 @@ export default function ApplyPage() {
 	const [applyRole, setApplyRole] = useState('');
 	const [applyResume, setApplyResume] = useState<File | null>(null);
 	const [applyLoading, setApplyLoading] = useState(false);
+	const [interviewLink, setInterviewLink] = useState('');
 	const [applySuccess, setApplySuccess] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -73,6 +74,12 @@ export default function ApplyPage() {
 			formData.append('github_username', applyGithub);
 			formData.append('job_id', applyJobID || 'default_job');
 			formData.append('role', applyRole || 'Full-Stack Developer');
+
+			// Resolve company_id from the job so candidates appear on the right dashboard
+			const selectedJobObj = jobs.find(j => j.id === applyJobID);
+			if (selectedJobObj?.company_id) {
+				formData.append('company_id', selectedJobObj.company_id);
+			}
 			if (applyResume) {
 				formData.append('resume', applyResume);
 			}
@@ -82,6 +89,21 @@ export default function ApplyPage() {
 				body: formData,
 			});
 			if (!res.ok) throw new Error('Application submission failed');
+			const candidate = await res.json();
+
+			// Auto-create interview session and get the link
+			try {
+				const sessionRes = await fetch(`${apiBase}/api/interview/start`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ candidate_id: candidate.id, job_id: applyJobID || 'default_job' }),
+				});
+				if (sessionRes.ok) {
+					const sessionData = await sessionRes.json();
+					const token = sessionData.session?.token;
+					if (token) setInterviewLink(`${window.location.origin}/interview/${token}`);
+				}
+			} catch { /* interview link optional */ }
 
 			setApplySuccess(true);
 			setApplyName('');
@@ -90,10 +112,7 @@ export default function ApplyPage() {
 			setApplyResume(null);
 			if (fileInputRef.current) fileInputRef.current.value = '';
 			
-			// Redirect back to landing page after 3 seconds
-			setTimeout(() => {
-				router.push('/');
-			}, 3000);
+			// No redirect — candidate stays to copy their interview link
 		} catch (err) {
 			alert((err as Error).message);
 		} finally {
@@ -133,9 +152,25 @@ export default function ApplyPage() {
 					</div>
 
 					{applySuccess && (
-						<div style={{ padding: '1.25rem', background: 'rgba(16,185,129,0.1)', border: '1px solid var(--color-success)', borderRadius: '0.5rem', marginBottom: '1.5rem', color: '#6ee7b7', textAlign: 'center' }}>
-							<strong>✓ Application submitted successfully!</strong>
-							<p style={{ margin: '0.5rem 0 0 0', fontSize: '0.85rem' }}>You will be redirected back to the home page momentarily...</p>
+						<div style={{ padding: '1.5rem', background: 'rgba(16,185,129,0.08)', border: '1px solid var(--color-success)', borderRadius: '0.75rem', marginBottom: '1.5rem' }}>
+							<p style={{ color: '#6ee7b7', fontWeight: 700, fontSize: '1rem', marginBottom: '0.5rem' }}>✓ Application submitted!</p>
+							{interviewLink ? (
+								<>
+									<p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.75rem' }}>Your interview link is ready. Copy it and open it in Chrome or Edge to start.</p>
+									<div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', background: 'rgba(0,0,0,0.3)', padding: '0.65rem 0.85rem', borderRadius: '0.5rem', border: '1px solid rgba(6,182,212,0.3)' }}>
+										<span style={{ flex: 1, fontSize: '0.8rem', color: 'var(--color-accent)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{interviewLink}</span>
+										<button className="btn btn-primary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', flexShrink: 0 }}
+											onClick={() => { navigator.clipboard.writeText(interviewLink); }}>
+											Copy
+										</button>
+										<a href={interviewLink} className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', flexShrink: 0 }} target="_blank" rel="noreferrer">
+											Open →
+										</a>
+									</div>
+								</>
+							) : (
+								<p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>The hiring team will send you your interview link shortly.</p>
+							)}
 						</div>
 					)}
 

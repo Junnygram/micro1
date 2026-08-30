@@ -192,6 +192,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/interview/questions", s.handleInterviewQuestions)
 	mux.HandleFunc("/api/interview/start", s.handleInterviewStart)
 	mux.HandleFunc("/api/interview/complete", s.handleInterviewComplete)
+	mux.HandleFunc("/api/interview/sessions", s.handleInterviewSessionsByJob)
 	mux.HandleFunc("/api/interview/", s.handleInterviewSession)
 	mux.HandleFunc("/api/admin/stats", s.handleAdminStats)
 	mux.HandleFunc("/api/admin/companies", s.handleAdminCompanies)
@@ -963,6 +964,26 @@ func (s *Server) handleInterviewStart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"session": session, "questions": qs})
+}
+
+// handleInterviewSessionsByJob: GET all sessions for a job (leaderboard)
+func (s *Server) handleInterviewSessionsByJob(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	jobID := r.URL.Query().Get("job_id")
+	if jobID == "" {
+		http.Error(w, "job_id required", http.StatusBadRequest)
+		return
+	}
+	sessions, err := s.DB.GetInterviewSessionsByJob(jobID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(sessions)
 }
 
 // handleInterviewSession: GET session by token
