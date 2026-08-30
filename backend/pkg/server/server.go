@@ -189,6 +189,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/proctoring", s.handleProctoringEvent)
 	mux.HandleFunc("/api/candidates/recording", s.handleUploadRecording)
 	mux.HandleFunc("/api/speak", s.handleSpeak)
+	mux.HandleFunc("/api/interview/questions", s.handleInterviewQuestions)
+	mux.HandleFunc("/api/interview/start", s.handleInterviewStart)
+	mux.HandleFunc("/api/interview/complete", s.handleInterviewComplete)
+	mux.HandleFunc("/api/interview/", s.handleInterviewSession)
+	mux.HandleFunc("/api/admin/stats", s.handleAdminStats)
+	mux.HandleFunc("/api/admin/companies", s.handleAdminCompanies)
 
 	// Serve uploaded resume files
 	resumeDir := filepath.Join(s.WorkspaceDir, "data", "resumes")
@@ -895,4 +901,209 @@ func (s *Server) handleCompanyDetail(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(company)
+}
+
+// handleInterviewQuestions: GET/POST interview questions for a job
+func (s *Server) handleInterviewQuestions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch r.Method {
+	case http.MethodGet:
+		jobID := r.URL.Query().Get("job_id")
+		if jobID == "" {
+			http.Error(w, "job_id required", http.StatusBadRequest)
+			return
+		}
+		qs, err := s.DB.GetInterviewQuestions(jobID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(qs)
+	case http.MethodPost:
+		var req struct {
+			JobID     string   `json:"job_id"`
+			Questions []string `json:"questions"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.JobID == "" {
+			http.Error(w, "job_id and questions required", http.StatusBadRequest)
+			return
+		}
+		if err := s.DB.SetInterviewQuestions(req.JobID, req.Questions); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_, _ = io.WriteString(w, `{"success":true}`)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleInterviewStart: candidate starts their interview session via token
+func (s *Server) handleInterviewStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		CandidateID string `json:"candidate_id"`
+		JobID       string `json:"job_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.CandidateID == "" || req.JobID == "" {
+		http.Error(w, "candidate_id and job_id required", http.StatusBadRequest)
+		return
+	}
+	token := uuid.New().String()
+	sessionID := uuid.New().String()
+	session, err := s.DB.CreateInterviewSession(sessionID, req.CandidateID, req.JobID, token)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	qs, _ := s.DB.GetInterviewQuestions(req.JobID)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"session": session, "questions": qs})
+}
+
+// handleInterviewSession: GET session by token
+func (s *Server) handleInterviewSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	token := strings.TrimPrefix(r.URL.Path, "/api/interview/")
+	if token == "" {
+		http.Error(w, "token required", http.StatusBadRequest)
+		return
+	}
+	session, err := s.DB.GetInterviewSessionByToken(token)
+	if err != nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+	cand, _ := s.DB.GetCandidate(session.CandidateID)
+	qs, _ := s.DB.GetInterviewQuestions(session.JobID)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"session": session, "candidate": cand, "questions": qs})
+}
+
+// handleInterviewComplete: score all answers via Gemini and save
+func (s *Server) handleInterviewComplete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		SessionID string            `json:"session_id"`
+		Answers   map[string]string `json:"answers"` // question_id -> answer text
+		JobTitle  string            `json:"job_title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SessionID == "" {
+		http.Error(w, "session_id and answers required", http.StatusBadRequest)
+		return
+	}
+
+	// Build prompt for Gemini to score all answers
+	answerText := ""
+	for qID, ans := range req.Answers {
+		answerText += fmt.Sprintf("Q%s: %s\n", qID, ans)
+	}
+	prompt := fmt.Sprintf(`You are an expert technical interviewer for the role: "%s".
+Score this candidate's interview answers from 0-100 and give a fit summary.
+Answers:
+%s
+
+Respond in this exact JSON format:
+{"score": <0-100>, "fit_summary": "<2-3 sentence summary of why they are or aren't a fit>", "strengths": "<key strengths>", "gaps": "<key gaps>"}`, req.JobTitle, answerText)
+
+	geminiKey := os.Getenv("GEMINI_API_KEY")
+	score := 70
+	fitSummary := "Interview completed. AI scoring unavailable."
+
+	if geminiKey != "" {
+		type geminiPart struct{ Text string `json:"text"` }
+		type geminiContent struct {
+			Parts []geminiPart `json:"parts"`
+		}
+		type geminiReq struct {
+			Contents []geminiContent `json:"contents"`
+		}
+		body, _ := json.Marshal(geminiReq{Contents: []geminiContent{{Parts: []geminiPart{{Text: prompt}}}}})
+		resp, err := http.Post(
+			fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=%s", geminiKey),
+			"application/json", strings.NewReader(string(body)),
+		)
+		if err == nil {
+			defer resp.Body.Close()
+			var result struct {
+				Candidates []struct {
+					Content struct {
+						Parts []struct{ Text string `json:"text"` } `json:"parts"`
+					} `json:"content"`
+				} `json:"candidates"`
+			}
+			if json.NewDecoder(resp.Body).Decode(&result) == nil && len(result.Candidates) > 0 {
+				text := result.Candidates[0].Content.Parts[0].Text
+				// Extract JSON from response
+				start := strings.Index(text, "{")
+				end := strings.LastIndex(text, "}")
+				if start >= 0 && end > start {
+					var parsed struct {
+						Score      int    `json:"score"`
+						FitSummary string `json:"fit_summary"`
+						Strengths  string `json:"strengths"`
+						Gaps       string `json:"gaps"`
+					}
+					if json.Unmarshal([]byte(text[start:end+1]), &parsed) == nil {
+						score = parsed.Score
+						fitSummary = parsed.FitSummary
+						if parsed.Strengths != "" {
+							fitSummary += " Strengths: " + parsed.Strengths
+						}
+						if parsed.Gaps != "" {
+							fitSummary += " Gaps: " + parsed.Gaps
+						}
+					}
+				}
+			}
+		}
+	}
+
+	answerJSON, _ := json.Marshal(req.Answers)
+	if err := s.DB.CompleteInterviewSession(req.SessionID, score, fitSummary, string(answerJSON)); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"score": score, "fit_summary": fitSummary})
+}
+
+// handleAdminStats: super admin platform overview
+func (s *Server) handleAdminStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	stats, err := s.DB.GetAdminStats()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(stats)
+}
+
+// handleAdminCompanies: super admin list all companies
+func (s *Server) handleAdminCompanies(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	companies, err := s.DB.ListAllCompanies()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(companies)
 }

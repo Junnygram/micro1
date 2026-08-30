@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 export default function LoginRegisterPage() {
 	const [isLogin, setIsLogin] = useState(true);
 	const [name, setName] = useState('Acme Corp');
-	const [email, setEmail] = useState('demo@example.com');
+	const [email, setEmail] = useState('demo@zarasourcing.com');
 	const [password, setPassword] = useState('demo123');
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState('');

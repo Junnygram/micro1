@@ -81,6 +81,27 @@ type Step struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type InterviewQuestion struct {
+	ID         int64     `json:"id"`
+	JobID      string    `json:"job_id"`
+	Question   string    `json:"question"`
+	OrderIndex int       `json:"order_index"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type InterviewSession struct {
+	ID            string    `json:"id"`
+	CandidateID   string    `json:"candidate_id"`
+	JobID         string    `json:"job_id"`
+	Token         string    `json:"token"`
+	Status        string    `json:"status"` // "pending", "in_progress", "completed"
+	InterviewScore int      `json:"interview_score"`
+	FitSummary    string    `json:"fit_summary"`
+	Answers       string    `json:"answers"` // JSON blob
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
 type ProctoringEvent struct {
 	ID          int64     `json:"id"`
 	CandidateID string    `json:"candidate_id"`
@@ -184,6 +205,25 @@ func (db *DB) migrateSchema() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (session_id) REFERENCES candidates(id) ON DELETE CASCADE
 		);`,
+		`CREATE TABLE IF NOT EXISTS interview_questions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			job_id TEXT NOT NULL,
+			question TEXT NOT NULL,
+			order_index INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE TABLE IF NOT EXISTS interview_sessions (
+			id TEXT PRIMARY KEY,
+			candidate_id TEXT NOT NULL,
+			job_id TEXT NOT NULL,
+			token TEXT NOT NULL UNIQUE,
+			status TEXT DEFAULT 'pending',
+			interview_score INTEGER DEFAULT 0,
+			fit_summary TEXT DEFAULT '',
+			answers TEXT DEFAULT '{}',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
 		`CREATE TABLE IF NOT EXISTS proctoring_events (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			candidate_id TEXT NOT NULL,
@@ -222,6 +262,7 @@ func (db *DB) migrateSchema() error {
 	_, _ = db.Exec("ALTER TABLE candidates ADD COLUMN company_id TEXT DEFAULT '';")
 	_, _ = db.Exec("ALTER TABLE jobs ADD COLUMN company_id TEXT DEFAULT '';")
 	_, _ = db.Exec("ALTER TABLE sourcing_criteria ADD COLUMN company_id TEXT DEFAULT '';")
+	_, _ = db.Exec("ALTER TABLE candidates ADD COLUMN interview_token TEXT DEFAULT '';")
 
 	for _, q := range queries {
 		if strings.HasPrefix(q, "INSERT INTO") {
@@ -641,4 +682,124 @@ func parseTimeStr(val string) time.Time {
 		return t
 	}
 	return time.Now()
+}
+
+// Interview Questions
+func (db *DB) SetInterviewQuestions(jobID string, questions []string) error {
+	_, _ = db.Exec(`DELETE FROM interview_questions WHERE job_id = ?`, jobID)
+	for i, q := range questions {
+		_, err := db.Exec(`INSERT INTO interview_questions (job_id, question, order_index) VALUES (?, ?, ?)`, jobID, q, i)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (db *DB) GetInterviewQuestions(jobID string) ([]InterviewQuestion, error) {
+	rows, err := db.Query(`SELECT id, job_id, question, order_index, created_at FROM interview_questions WHERE job_id = ? ORDER BY order_index ASC`, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []InterviewQuestion
+	for rows.Next() {
+		var q InterviewQuestion
+		var tStr string
+		if err := rows.Scan(&q.ID, &q.JobID, &q.Question, &q.OrderIndex, &tStr); err != nil {
+			return nil, err
+		}
+		q.CreatedAt = parseTimeStr(tStr)
+		list = append(list, q)
+	}
+	return list, nil
+}
+
+// Interview Sessions
+func (db *DB) CreateInterviewSession(id, candidateID, jobID, token string) (*InterviewSession, error) {
+	now := time.Now()
+	_, err := db.Exec(`INSERT INTO interview_sessions (id, candidate_id, job_id, token, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+		id, candidateID, jobID, token, now, now)
+	if err != nil {
+		return nil, err
+	}
+	return &InterviewSession{ID: id, CandidateID: candidateID, JobID: jobID, Token: token, Status: "pending", CreatedAt: now, UpdatedAt: now}, nil
+}
+
+func (db *DB) GetInterviewSessionByToken(token string) (*InterviewSession, error) {
+	var s InterviewSession
+	var tCreate, tUpdate string
+	err := db.QueryRow(`SELECT id, candidate_id, job_id, token, status, interview_score, fit_summary, answers, created_at, updated_at FROM interview_sessions WHERE token = ?`, token).
+		Scan(&s.ID, &s.CandidateID, &s.JobID, &s.Token, &s.Status, &s.InterviewScore, &s.FitSummary, &s.Answers, &tCreate, &tUpdate)
+	if err != nil {
+		return nil, err
+	}
+	s.CreatedAt = parseTimeStr(tCreate)
+	s.UpdatedAt = parseTimeStr(tUpdate)
+	return &s, nil
+}
+
+func (db *DB) GetInterviewSessionsByJob(jobID string) ([]InterviewSession, error) {
+	rows, err := db.Query(`SELECT id, candidate_id, job_id, token, status, interview_score, fit_summary, answers, created_at, updated_at FROM interview_sessions WHERE job_id = ? ORDER BY interview_score DESC`, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []InterviewSession
+	for rows.Next() {
+		var s InterviewSession
+		var tCreate, tUpdate string
+		if err := rows.Scan(&s.ID, &s.CandidateID, &s.JobID, &s.Token, &s.Status, &s.InterviewScore, &s.FitSummary, &s.Answers, &tCreate, &tUpdate); err != nil {
+			return nil, err
+		}
+		s.CreatedAt = parseTimeStr(tCreate)
+		s.UpdatedAt = parseTimeStr(tUpdate)
+		list = append(list, s)
+	}
+	return list, nil
+}
+
+func (db *DB) CompleteInterviewSession(id string, score int, fitSummary, answers string) error {
+	_, err := db.Exec(`UPDATE interview_sessions SET status='completed', interview_score=?, fit_summary=?, answers=?, updated_at=? WHERE id=?`,
+		score, fitSummary, answers, time.Now(), id)
+	return err
+}
+
+func (db *DB) UpdateInterviewStatus(id, status string) error {
+	_, err := db.Exec(`UPDATE interview_sessions SET status=?, updated_at=? WHERE id=?`, status, time.Now(), id)
+	return err
+}
+
+// Admin stats
+func (db *DB) GetAdminStats() (map[string]interface{}, error) {
+	stats := map[string]interface{}{}
+	var totalCompanies, totalJobs, totalCandidates, completedInterviews int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM companies`).Scan(&totalCompanies)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM jobs`).Scan(&totalJobs)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM candidates`).Scan(&totalCandidates)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM interview_sessions WHERE status='completed'`).Scan(&completedInterviews)
+	stats["total_companies"] = totalCompanies
+	stats["total_jobs"] = totalJobs
+	stats["total_candidates"] = totalCandidates
+	stats["completed_interviews"] = completedInterviews
+	return stats, nil
+}
+
+func (db *DB) ListAllCompanies() ([]Company, error) {
+	rows, err := db.Query(`SELECT id, name, slug, email, logo_url, plan, created_at FROM companies ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []Company
+	for rows.Next() {
+		var c Company
+		var tStr string
+		if err := rows.Scan(&c.ID, &c.Name, &c.Slug, &c.Email, &c.LogoURL, &c.Plan, &tStr); err != nil {
+			return nil, err
+		}
+		c.CreatedAt = parseTimeStr(tStr)
+		list = append(list, c)
+	}
+	return list, nil
 }

@@ -74,9 +74,12 @@ export default function LandingPage() {
 						</p>
 					</div>
 				</div>
-				<div>
-					<Link href="/login" className="btn btn-primary" style={{ fontSize: '0.9rem', padding: '0.6rem 1.25rem', fontWeight: 600 }}>
-						Login / Register →
+				<div style={{ display: 'flex', gap: '0.75rem' }}>
+					<Link href="/company/login" className="btn btn-secondary" style={{ fontSize: '0.9rem', padding: '0.6rem 1.25rem', fontWeight: 600 }}>
+						For Companies
+					</Link>
+					<Link href="/apply/general" className="btn btn-primary" style={{ fontSize: '0.9rem', padding: '0.6rem 1.25rem', fontWeight: 600 }}>
+						Apply for a Role →
 					</Link>
 				</div>
 			</header>
@@ -250,9 +253,9 @@ export default function LandingPage() {
 				fontSize: '0.85rem'
 			}}>
 				<div style={{ display: 'flex', gap: '2rem' }}>
-					<Link href="/login" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>Admin Login</Link>
+					<Link href="/company/login" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>Company Login</Link>
 					<Link href="/apply/general" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>Candidate Application</Link>
-					<a href="https://railway.app" target="_blank" rel="noreferrer" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>Powered by Railway</a>
+					<Link href="/admin" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>Platform Admin</Link>
 				</div>
 				<p>© {new Date().getFullYear()} ZaraSourcing. Built for the modern technical recruiter.</p>
 			</footer>
