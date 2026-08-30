@@ -25,7 +25,7 @@ These use **seeded data** — always work on deploy:
 
 | Step | URL | What judges see |
 |---|---|---|
-| Benchmark | `/benchmark` | 60% vs 70%, fraud 0/4 → 4/4 |
+| Benchmark | `/benchmark` | 60% vs 70%, fraud 1/5 → 5/5 |
 | Public fraud report | `/report/riveradevops` | Alex Rivera inflation + evidence |
 | Demo login | `/company/login` → `demo@zarasourcing.com` / `demo123` | 10 candidates, seeded audits |
 | Dashboard | `/company/dashboard` | Rankings, composite scores |

@@ -1,384 +1,374 @@
-# ZaraSourcing — AI-Powered Technical Hiring Platform
+# ZaraSourcing — Evidence-Based Technical Hiring
 
-> **Built for the micro1 Hackathon** · Go + Next.js · AWS Bedrock Claude · AWS Polly · MediaPipe AR
+> **Built for the micro1 Hackathon** · Go + Next.js · AWS Bedrock Claude · AWS Rekognition · AWS Polly · MediaPipe
 
-ZaraSourcing is a full-stack SaaS hiring platform that replaces manual technical screening with an end-to-end AI pipeline. Companies post jobs, candidates apply and take a live AI voice interview, and the platform scores every answer — producing a ranked leaderboard with cited GitHub audit evidence.
+**Live demo:** https://micro1-production.up.railway.app/demo
+**Judge login:** `demo@zarasourcing.com` / `demo123`
 
----
-
-## 🎯 The Problem We Solve
-
-Resume inflation is at an all-time high. A candidate claims *"Expert in Go concurrency, built custom SQLite WAL wrappers, core open-source contributor"* — standard ATS tools score them 100/100 on keywords alone. Recruiters then spend hours manually browsing GitHub, reading code, and conducting phone screens just to find out the candidate copied everything from a tutorial.
-
-**ZaraSourcing eliminates this entirely:**
-- Audits GitHub code against resume claims automatically
-- Conducts a live AI voice interview — no human interviewer needed
-- Scores every spoken answer with **AWS Bedrock Claude** (Gemini fallback) and ranks candidates
-- Shows the hiring team exactly who is a fit and why, in seconds
+ZaraSourcing screens engineers on **evidence instead of keywords**. It reads a candidate's resume claims, then goes and reads their actual GitHub code to check whether those claims hold up. Candidates then sit a hands-free AI voice interview that is proctored server-side by Amazon Rekognition. The recruiter gets a ranked leaderboard where every score is backed by a citation to a real file and line.
 
 ---
 
-## 🏗️ Architecture — 3 User Roles
+## The problem
+
+Resume inflation is easy and checking it is expensive. A candidate writes *"Expert in Go concurrency, built custom SQLite WAL wrappers, core open-source contributor."* A keyword ATS scores that 100/100, because every keyword is present. A recruiter then spends an hour on GitHub to discover the repo is a tutorial fork with three commits.
+
+ZaraSourcing closes that gap in three ways:
+
+| | What it does | Why it is trustworthy |
+|---|---|---|
+| **Claim audit** | Tool-calling agent reads the candidate's real repo files and grades each resume claim | Every verdict cites the file it read |
+| **Voice interview** | AI asks role-specific questions, candidate speaks, answers scored by Bedrock Claude | Full transcript + per-answer reasoning stored |
+| **Proctoring** | Webcam frames analysed by Amazon Rekognition server-side | Verdict carries the AWS label + confidence |
+
+---
+
+## What is actually built
+
+### 1. GitHub claim audit (the agent)
+
+Two agents run over the same candidate so the difference is measurable:
+
+- **Baseline** — a single text-only LLM call. Sees the resume, never sees the code.
+- **ZaraSourcing agent** — a tool-calling loop with real GitHub access: `list_github_repos`, `list_repo_files`, `get_repo_file`, plus proctoring history.
+
+The agent returns a verdict per claim (`verified` / `exaggerated` / `failed`), a composite score, and a citation for each verdict. Reasoning traces are written to `backend/data/trajectories/` so a judge can read exactly which files the agent opened and why it changed its mind.
+
+### 2. Hands-free AI voice interview
+
+- Questions are set per job by the recruiter, spoken with **AWS Polly** neural TTS (browser `SpeechSynthesis` fallback).
+- The candidate just talks. The **Web Speech API** transcribes live.
+- Silence detection drives the flow: after a pause the AI asks *"Are you done?"* and advances on its own. No button required.
+- **AWS Bedrock Claude** scores the full transcript (Gemini fallback) and returns `score`, `fit_summary`, `strengths`, `gaps`.
+
+### 3. Proctoring decided by Amazon Rekognition
+
+This is deliberately **not** a browser heuristic. The browser's only job is to capture a JPEG frame and POST it. The backend calls Rekognition and decides.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    ZaraSourcing Platform                 │
-├──────────────────────┬──────────────────────────────────┤
-│     Company          │           Candidate              │
-│  /company/dashboard  │  /apply/[jobId]                  │
-│  /company/login      │  /interview/[token]              │
-│  /benchmark          │  Apply → private interview link  │
-│  Create jobs         │  Hands-free AI voice interview   │
-│  Set AI questions    │  Live score + feedback           │
-│  Copy apply link     │                                  │
-│  View leaderboard    │                                  │
-│  Run GitHub audits   │                                  │
-└──────────────────────┴──────────────────────────────────┘
+Browser  ──capture 480px JPEG──▶  POST /api/proctoring/analyze
+                                        │
+                                        ▼
+                              Go backend (pkg/proctor)
+                              ├─ Rekognition DetectLabels (MaxLabels 30, MinConfidence 60)
+                              ├─ Rekognition DetectFaces  (Attributes: ALL → pose, eyes)
+                              ├─ derives verdict
+                              └─ writes finding to proctoring_events
+                                        │
+                                        ▼
+                         Recruiter → candidate page → integrity timeline
 ```
 
----
-
-## 🛠️ Tech Stack
-
-| Layer | Technology |
+| Verdict | Trigger |
 |---|---|
-| **Backend** | Go 1.21 · `net/http` · REST API |
-| **Database** | SQLite with WAL mode (`modernc.org/sqlite`) |
-| **Frontend** | Next.js 14 · TypeScript · Vanilla CSS |
-| **AI Agent & Scoring** | AWS Bedrock Claude (primary) · Gemini 2.0 Flash (fallback) |
-| **AI Voice** | AWS Polly (neural TTS) · browser `SpeechSynthesis` fallback |
-| **Speech-to-Text** | Web Speech API (`SpeechRecognition`) — live transcription |
-| **Face Tracking** | MediaPipe FaceLandmarker (WebAssembly) — AR overlay + gaze detection |
-| **Video Recording** | MediaRecorder API — session archiving |
-| **File Storage** | AWS S3 (resume + recording uploads, local fallback) |
+| `ok` | one face, head pose within limits, nothing flagged |
+| `device_detected` | phone / laptop / screen / book / paper label above 60% |
+| `multiple_faces` | more than one face above 90% confidence |
+| `no_face` | zero faces above 90% confidence |
+| `gaze_away` | \|yaw\| > 28° or \|pitch\| > 22° |
+
+Every flag stored on the candidate carries the Rekognition label and its confidence, so a recruiter can see *why* a session was flagged rather than trusting a boolean. MediaPipe still runs in the browser, but only to draw the live face mesh — it does not decide anything.
+
+Full detail and verification steps: **[PROCTORING.md](./PROCTORING.md)**.
 
 ---
 
-## 🚀 Quick Start
+## Benchmark — and how to check it yourself
+
+The agent was evaluated against 10 candidate profiles with hand-labelled ground truth verdicts. Both arms see the same 10 profiles and the same roles.
+
+| Metric | Baseline (text-only) | ZaraSourcing agent |
+|---|---|---|
+| Accuracy | **60.0%** (6/10) | **70.0%** (7/10) |
+| Resume fraud caught | **1 / 5** | **5 / 5** |
+
+**What "correct" means here.** The task is a binary decision: *should a human look at this candidate more closely?* A case counts as correct when a `verified` target gets a `verified` verdict, or a non-`verified` target (`exaggerated` or `failed`) gets any non-`verified` verdict. Distinguishing `exaggerated` from `failed` is not scored, because both lead to the same recruiter action. The rule is one function, `verdictMatchesTarget` in `backend/pkg/benchmark/compute.go`, and the tests assert the published percentages against it.
+
+**The honest reading of these numbers.** 70% versus 60% is a 1-case difference and on its own it would be noise. The fraud row is the real result, and the table below shows the actual trade the agent makes:
+
+- The **baseline never falsely flags a good candidate** — it clears all 5 genuine engineers. But it also clears 4 of the 5 fraudulent ones, because an inflated resume is still a well-written resume. It catches fraud 1 time in 5.
+- The **agent catches all 5 frauds** by reading the code, but it over-flags **3 genuine candidates** (`@junnygram`, `@emilycodes`, `@mikecode`) as `exaggerated`.
+
+So the agent buys +4 fraud detections for 3 false positives. For screening that is a favourable trade — a false flag costs a recruiter one manual review, a missed fraud costs an onsite loop — but it is a real cost and the over-flagging is the clearest thing to improve next. Ten profiles is a small set; treat this as directional evidence, not a precise measurement.
+
+`backend/data/benchmark_results.json` is the single source of truth. The `/benchmark` page, the README block below, and the API all read from that one file — nothing is hardcoded in the UI.
+
+```bash
+make verify-benchmark   # no API key needed — checks the file is internally consistent
+make evaluate           # re-runs both agents from scratch (Gemini key, ~2–5 min)
+```
+
+`make verify-benchmark` recomputes both percentages and the fraud counts from the per-case rows and fails if they disagree with the published headline, so an edited file will not pass.
+
+<!-- BENCHMARK_START -->
+### Vetting Benchmark Metrics
+* **Baseline Accuracy (Text Match):** 60.0% — 6/10
+* **ZaraSourcing Accuracy (Code Grounded):** 70.0% — 7/10
+* **Resume fraud caught:** Baseline 1/5 · ZaraSourcing 5/5
+
+| Candidate | GitHub | Vetting Role | Target | Baseline | ZaraSourcing | Baseline | Agent |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Jessica Taylor | @jesscloud | Cloud Infrastructure Engineer | `verified` | `verified` | `verified` | ✅ | ✅ |
+| Carlos Gomez | @carlosfront | Next.js Tailwind Developer | `verified` | `verified` | `verified` | ✅ | ✅ |
+| Olaleye Oyewunmi | @junnygram | Senior Full-Stack Engineer (Go/Next.js) | `verified` | `verified` | `exaggerated` | ✅ | ❌ over-flag |
+| Emily Chen | @emilycodes | Senior Frontend Developer | `verified` | `verified` | `exaggerated` | ✅ | ❌ over-flag |
+| Michael Chang | @mikecode | Full-Stack Node.js Developer | `verified` | `verified` | `exaggerated` | ✅ | ❌ over-flag |
+| Alex Rivera | @riveradevops | DevOps & SRE Engineer | `exaggerated` | `verified` | `exaggerated` | ❌ missed | ✅ |
+| Sarah Jenkins | @sarahml | Data Scientist & ML Engineer | `exaggerated` | `verified` | `failed` | ❌ missed | ✅ |
+| David Kim | @davidsecurity | Security Engineer | `failed` | `verified` | `failed` | ❌ missed | ✅ |
+| Amara Okafor | @amaracodes | Python Backend Developer | `failed` | `verified` | `failed` | ❌ missed | ✅ |
+| Raj Patel | @rajconcurrency | Golang Backend Developer | `failed` | `failed` | `failed` | ✅ | ✅ |
+
+<!-- BENCHMARK_END -->
+
+Reproduction guide: **[REPRODUCTION.md](./REPRODUCTION.md)**
+
+---
+
+## Try it in 5 minutes
+
+Start at **https://micro1-production.up.railway.app/demo** — a guided page that walks the whole product in order. Or go straight to a piece:
+
+| What | Link |
+|---|---|
+| Guided demo walkthrough | `/demo` |
+| Benchmark, live from the results file | `/benchmark` |
+| Recruiter dashboard (`demo@zarasourcing.com` / `demo123`) | `/company/login` |
+| 2-question voice + AR interview | `/demo` → **Launch demo interview** |
+| Candidate apply flow | `/apply/devops_job` |
+
+**Best single thing to look at:** the recruiter dashboard → **Alex Rivera** (`@riveradevops`). Inflated DevOps resume, caught with file-level citations. The baseline scored him `verified`; the agent scored him `exaggerated` at 45%.
+
+**For the voice interview:** use **Chrome or Edge** and allow camera + microphone. The 2-question demo takes about 2 minutes. Look away from the screen or switch tabs to see proctoring raise a flag.
+
+---
+
+## Run it locally
 
 ### Prerequisites
 - Go 1.21+
-- Node.js v18+ & npm
-- Google Gemini API Key
-- AWS credentials (for Polly TTS + S3 — optional, fallback works without)
-
-### 1. Clone & Configure
+- Node.js 18+ and npm
+- AWS credentials (Bedrock + Polly + Rekognition + S3) — optional, everything degrades gracefully
+- Google Gemini API key — only needed to re-run `make evaluate`
 
 ```bash
 git clone https://github.com/Junnygram/micro1.git
 cd micro1
-cp .env.example .env
+cp .env.example .env   # fill in the values below
+make run               # backend :8080, frontend :3000
 ```
 
-Open `.env` and fill in:
+Open http://localhost:3000.
 
 ```env
-GEMINI_API_KEY=your_gemini_key_here
 LLM_PROVIDER=bedrock
 AWS_ACCESS_KEY_ID=your_aws_key
 AWS_SECRET_ACCESS_KEY=your_aws_secret
-AWS_S3_BUCKET=your-bucket-name
-AWS_S3_REGION=us-east-1
 AWS_REGION=us-east-1
+AWS_S3_BUCKET=your-bucket-name
+GEMINI_API_KEY=your_gemini_key      # fallback + benchmark
 PORT=8080
 NEXT_PUBLIC_API_URL=http://localhost:8080
 ```
 
-### 2. Run the Full Stack
+### Running without AWS keys
+
+Nothing hard-fails. Polly falls back to browser speech, Bedrock falls back to Gemini, S3 falls back to local disk, and Rekognition proctoring returns `{"provider":"unavailable","verdict":"skipped"}` while the MediaPipe overlay, gaze tracking and tab-switch detection keep working. Set `PROCTOR_PROVIDER=local` to force that path deliberately.
+
+---
+
+## Validation
+
+Everything load-bearing has a command that checks it.
 
 ```bash
-make run
+make verify-benchmark   # benchmark file is internally consistent (no key needed)
+make test-proctor       # 7 tests over every Rekognition verdict rule (no AWS needed)
+make verify-proctor FRAMES="clean.jpg phone.jpg two_people.jpg"
+make evaluate           # full benchmark re-run (Gemini key, ~2–5 min)
 ```
 
-This starts the Go backend on `:8080` and the Next.js frontend on `:3000`.
+`make verify-proctor` sends your own photos through the real AWS API and prints the verdict, face count, head pose, latency, flagged labels with confidences, and the full raw Rekognition response — so you can see the evidence behind a decision rather than taking the verdict on faith.
 
-### 3. Open the App
+Check a deployment's proctoring status directly:
 
+```bash
+curl -s https://zarasourcing-production.up.railway.app/api/health
 ```
-http://localhost:3000
+
+```json
+{
+  "status": "ok",
+  "proctoring": {
+    "provider": "aws_rekognition",
+    "ready": true,
+    "checks": ["phone_detected", "multiple_faces", "look_away", "no_face"]
+  }
+}
 ```
+
+`ready: false` means AWS credentials or IAM permissions are missing on that deployment and proctoring is running in MediaPipe-only fallback.
 
 ---
 
-## 🗺️ How to Use the Platform
+## Tech stack
 
-### As a Company (Hiring Manager)
-
-**1. Sign up / Log in**
-```
-http://localhost:3000/company/login
-```
-> Demo account: `demo@zarasourcing.com` / `demo123`
-
-**2. Create a Job Opening**
-- Click **+ New** in the sidebar
-- Enter the job title and description
-- Click **Create Job**
-
-**3. Set AI Interview Questions**
-- Select your job → click **⚙ Interview Questions**
-- Add 3–5 role-specific questions (e.g. *"Explain how you handle race conditions in Go"*)
-- Click **Save Questions** — the AI will ask these verbally to every candidate
-
-**4. Share the Apply Link**
-- Click **🔗 Copy Apply Link**
-- Send it to candidates via email, LinkedIn, or job boards
-- The link looks like: `https://yourdomain.com/apply/[job-id]`
-
-**5. View Results**
-- As candidates complete interviews, the **AI Interview Rankings** leaderboard populates automatically
-- Each candidate shows: rank, score (0–100%), fit verdict (STRONG FIT / POSSIBLE FIT / NOT A FIT), and Gemini's written reasoning
-- The **All Applicants** table shows everyone who applied with their interview status
+| Layer | Technology |
+|---|---|
+| Backend | Go 1.21 · `net/http` · REST |
+| Database | SQLite, WAL mode (`modernc.org/sqlite`) |
+| Frontend | Next.js 14 · TypeScript · vanilla CSS |
+| Audit agent & scoring | AWS Bedrock Claude (primary) · Gemini Flash (fallback) |
+| Interview voice | AWS Polly neural TTS · browser `SpeechSynthesis` fallback |
+| Speech-to-text | Web Speech API (`SpeechRecognition`) |
+| Proctoring decisions | **Amazon Rekognition** `DetectLabels` + `DetectFaces` |
+| Face mesh overlay | MediaPipe FaceLandmarker (WebAssembly) — visual only |
+| Recording | MediaRecorder API |
+| Storage | AWS S3, local disk fallback |
+| Deploy | Railway (two services) · Docker Compose for local |
 
 ---
 
-### As a Candidate
-
-**1. Apply**
-- Open the apply link shared by the company
-- Fill in: Full Name, Email, GitHub Username, select the role, upload your resume (PDF/DOCX)
-- Click **Submit Application →**
-
-**2. Take the AI Interview**
-- After applying, you receive a unique interview link
-- Open it in Chrome or Edge (required for Web Speech API)
-- Read the pre-interview checklist and click **Start Interview →**
-
-**3. The Interview Experience (hands-free)**
-- Allow microphone and camera access when prompted
-- The AI speaks each question (AWS Polly, or browser voice fallback)
-- **Just speak your answer** — live transcription appears on screen
-- After **~15 seconds of silence**, the AI asks: *"Are you done? Should I continue to the next question?"*
-- Say **"yes"** or stay silent ~10s more to advance automatically — no button required
-- Use **Chrome or Edge** (required for speech recognition)
-
-**4. Get Your Score**
-- Bedrock/Gemini scores all your answers (0–100%)
-- You see your score immediately with written feedback
-- The hiring team sees your ranking on their dashboard
-
-**5. View agent benchmark (judges)**
-```
-http://localhost:3000/benchmark
-```
-Shows 60% baseline vs 70% agent accuracy and fraud detection (0/4 → 4/4).
-
----
-
-### GitHub audit workspace (recruiters)
-
-From the company dashboard, open any candidate → **Run GitHub Audit** to see the agent terminal, claim citations, and proctoring timeline.
-
-**Best demo candidate:** Alex Rivera (`@riveradevops`) — inflated DevOps resume caught with evidence.
-
-Demo login: `demo@zarasourcing.com` / `demo123`
-
-## 🤖 AI Features Deep Dive
-
-### AI Voice Interview
-- AWS Polly speaks questions; fallback to browser `SpeechSynthesis`
-- Web Speech API transcribes answers live (Chrome/Edge)
-- **Hands-free flow:** silence detection → spoken prompt → auto-advance to next question
-- Optional manual **Skip to next** if needed
-
-### Interview Scoring
-When a candidate finishes, answers are sent to **AWS Bedrock Claude** (or Gemini if Bedrock is unavailable):
-```
-Respond in JSON: { score, fit_summary, strengths, gaps }
-```
-Score and fit summary appear on the company leaderboard.
-
-### AR Face Tracking (Proctoring)
-- MediaPipe FaceLandmarker runs in WebAssembly
-- Face mesh + bounding box overlay; `LOCKED ON` / `GAZE DEVIATION` labels
-- Gaze deviation and tab-switch events logged to the database
-
-### GitHub Code Auditing (ZaraSourcing Agent)
-Tool-calling agent verifies resume claims against code evidence:
-- `list_github_repos`, `list_repo_files`, `get_repo_file`, proctoring logs
-- Evaluated on **10 seeded profiles** with ground-truth labels (`make evaluate`)
-- **70% accuracy** vs **60%** text-only baseline; **4/4 fraud cases** caught
-- Live audit workspace: `/candidate/[id]` (demo data seeded on first run)
-
-## 📁 Project Structure
+## Project layout
 
 ```
 micro1/
 ├── backend/
 │   ├── pkg/
-│   │   ├── agent/          # GitHub audit agent + baseline
+│   │   ├── agent/          # audit agent + text-only baseline
+│   │   ├── proctor/        # Amazon Rekognition integrity analysis (+ tests)
 │   │   ├── awsbedrock/     # Bedrock Claude client
-│   │   ├── trajectory/     # Trajectory markdown parser
+│   │   ├── benchmark/      # benchmark file loader + consistency tests
+│   │   ├── trajectory/     # reasoning-trace parser
 │   │   ├── db/             # SQLite schema + queries
-│   │   ├── runner/         # Benchmark dataset loader
-│   │   └── server/         # REST API handlers
+│   │   ├── runner/         # benchmark dataset loader
+│   │   └── server/         # REST handlers
+│   ├── cmd/proctorcheck/   # make verify-proctor CLI
 │   ├── data/
-│   │   ├── candidates/     # dataset.json — 10 benchmark profiles
-│   │   ├── benchmark_results.json
-│   │   ├── resumes/        # Uploaded resume files
-│   │   ├── recordumes/     # Interview recordings (local)
-│   │   └── trajectories/   # Agent reasoning traces
+│   │   ├── candidates/dataset.json      # 10 labelled profiles
+│   │   ├── benchmark_results.json       # single source of benchmark truth
+│   │   ├── trajectories/                # agent reasoning traces
+│   │   └── resumes/ recordings/
 │   └── main.go
-├── frontend/
-│   └── src/app/
-│       ├── page.tsx                    # Landing page
-│       ├── benchmark/page.tsx          # 60% vs 70% benchmark UI
-│       ├── company/login/page.tsx      # Company auth
-│       ├── company/dashboard/page.tsx  # Jobs + leaderboard + pipeline
-│       ├── apply/[jobId]/page.tsx      # Candidate application
-│       ├── interview/[token]/page.tsx  # AI voice interview room
-│       └── candidate/[id]/page.tsx     # GitHub audit workspace
-├── SUBMISSION.md           # Hackathon submission checklist
-├── QUICKSTART.md           # Loom demo script
-├── DEPLOY.md               # Railway deploy guide
-├── CHANGELOG.md            # Agent improvement log
-├── evaluate.py             # Benchmark runner
-├── Makefile
-└── docker-compose.yml
+├── frontend/src/app/
+│   ├── page.tsx                    # landing
+│   ├── demo/page.tsx               # guided judge walkthrough
+│   ├── benchmark/page.tsx          # reads benchmark_results.json
+│   ├── company/dashboard/page.tsx  # jobs, leaderboard, pipeline
+│   ├── apply/[jobId]/page.tsx      # candidate application
+│   ├── interview/[token]/page.tsx  # voice interview + proctoring
+│   ├── candidate/[id]/page.tsx     # audit workspace + citations
+│   └── report/[github]/page.tsx    # public fraud report
+├── PROCTORING.md      # how proctoring works + how to verify it
+├── REPRODUCTION.md    # reproduce the benchmark
+├── WALKTHROUGH.md     # demo video script
+├── DEPLOY.md          # Railway deploy guide
+├── evaluate.py        # benchmark runner
+└── Makefile
 ```
 
 ---
 
-## 🗄️ Database Schema
-
-| Table | Purpose |
-|---|---|
-| `companies` | Company accounts (bcrypt passwords) |
-| `jobs` | Job openings per company |
-| `candidates` | Applicants with resume URLs |
-| `interview_questions` | Per-job AI interview questions set by company |
-| `interview_sessions` | Per-candidate interview: token, answers (JSON), score, fit summary |
-| `claims_audit` | GitHub code audit results per candidate |
-| `steps` | Agent reasoning steps (terminal logs) |
-| `proctoring_events` | Gaze deviation + tab-switch events |
-| `sourcing_criteria` | Dynamic scoring weights per company |
-
----
-
-## 🔌 API Reference
-
-### Company Auth
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/companies/register` | Register new company |
-| `POST` | `/api/companies/login` | Login, returns company object |
-
-### Jobs
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/jobs?company_id=` | List jobs for a company |
-| `POST` | `/api/jobs` | Create a new job |
-
-### Applications
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/apply` | Submit candidate application (multipart) |
-| `GET` | `/api/candidates?company_id=&job_id=` | List candidates |
-
-### AI Interview
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/interview/questions?job_id=` | Get questions for a job |
-| `POST` | `/api/interview/questions` | Set questions for a job |
-| `POST` | `/api/interview/start` | Create interview session, returns token |
-| `GET` | `/api/interview/[token]` | Get session + candidate + questions |
-| `POST` | `/api/interview/complete` | Score answers via Bedrock/Gemini |
-
-### Agent & Benchmark
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/benchmark` | Canonical benchmark JSON |
-| `GET` | `/api/trajectory/{github}` | Saved agent trajectory |
-| `POST` | `/api/sessions` | Run GitHub audit agent |
-
-### Voice
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/speak?text=` | AWS Polly TTS — returns MP3 |
+## API reference
 
 ### Health
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/health` | Backend ping (`{"status":"ok"}`) |
+| `GET` | `/api/health` | Ping + live proctoring provider status |
+
+### Company auth & jobs
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/companies/register` | Register a company |
+| `POST` | `/api/companies/login` | Log in |
+| `GET` | `/api/jobs?company_id=` | List jobs |
+| `POST` | `/api/jobs` | Create a job |
+
+### Applications
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/apply` | Submit application (multipart, resume upload) |
+| `GET` | `/api/candidates?company_id=&job_id=` | List candidates |
+
+### Interview
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/interview/questions?job_id=` | Get a job's questions |
+| `POST` | `/api/interview/questions` | Set a job's questions |
+| `POST` | `/api/interview/start` | Create a session, returns token |
+| `GET` | `/api/interview/{token}` | Session + candidate + questions |
+| `POST` | `/api/interview/complete` | Score answers via Bedrock/Gemini |
+| `GET` | `/api/speak?text=` | Polly TTS, returns MP3 |
+
+### Proctoring
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/proctoring/analyze` | Frame → Rekognition verdict + audit log entry |
+
+### Agent & benchmark
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/sessions` | Run the audit agent (`mode: baseline \| advanced`) |
+| `GET` | `/api/benchmark` | Canonical benchmark JSON |
+| `GET` | `/api/trajectory/{github}` | Saved reasoning trace |
+
+### Demo
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/demo/status` | Demo-readiness self-check |
+| `POST` | `/api/demo/interview` | Provision the 2-question proctored interview |
 
 ---
 
-## 🧪 Benchmark Results
+## Database schema
 
-The GitHub audit agent was evaluated against 10 seeded candidate profiles with known ground-truth verdicts:
-
-| Agent | Accuracy |
+| Table | Purpose |
 |---|---|
-| Baseline (text-only keyword match) | **60.0%** |
-| ZaraSourcing (code-grounded audit) | **70.0%** |
-| Fraud detection (4 cases) | Baseline **0/4** → Agent **4/4** |
-
-See live numbers: `http://localhost:3000/benchmark`
-
-<!-- BENCHMARK_START -->
-### Vetting Benchmark Metrics
-* **Baseline Accuracy (Text Match):** 100.0%
-* **ZaraSourcing Accuracy (Code Grounded):** 100.0%
-
-| Candidate | GitHub | Vetting Role | Target Verdict | Baseline Verdict | ZaraSourcing Verdict | Final Match | Result |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Olaleye Oyewunmi | @junnygram | Senior Full-Stack Engineer (Go/Next.js) | `verified` | `verified` | `verified` | **92%** | ✅ SUCCESS |
-| Emily Chen | @emilycodes | Senior Frontend Developer | `verified` | `verified` | `verified` | **88%** | ✅ SUCCESS |
-| Jessica Taylor | @jesscloud | Cloud Infrastructure Engineer | `verified` | `verified` | `verified` | **85%** | ✅ SUCCESS |
-| Michael Chang | @mikecode | Full-Stack Node.js Developer | `verified` | `verified` | `verified` | **82%** | ✅ SUCCESS |
-| Carlos Gomez | @carlosfront | Next.js Tailwind Developer | `verified` | `verified` | `verified` | **80%** | ✅ SUCCESS |
-| Sarah Jenkins | @sarahml | Data Scientist & ML Engineer | `exaggerated` | `exaggerated` | `exaggerated` | **50%** | ✅ SUCCESS |
-| Alex Rivera | @riveradevops | DevOps & SRE Engineer | `exaggerated` | `exaggerated` | `exaggerated` | **45%** | ✅ SUCCESS |
-| David Kim | @davidsecurity | Security Engineer | `failed` | `failed` | `failed` | **40%** | ✅ SUCCESS |
-| Amara Okafor | @amaracodes | Python Backend Developer | `failed` | `failed` | `failed` | **38%** | ✅ SUCCESS |
-| Raj Patel | @rajconcurrency | Golang Backend Developer | `failed` | `failed` | `failed` | **35%** | ✅ SUCCESS |
-
-<!-- BENCHMARK_END -->
-
-Run the benchmark yourself:
-```bash
-make evaluate
-```
+| `companies` | Company accounts, bcrypt passwords |
+| `jobs` | Job openings per company |
+| `candidates` | Applicants, resume URLs, scores |
+| `interview_questions` | Per-job AI questions |
+| `interview_sessions` | Token, answers JSON, score, fit summary |
+| `claims_audit` | Per-claim GitHub audit verdicts + citations |
+| `steps` | Agent reasoning steps (terminal log) |
+| `proctoring_events` | Rekognition findings, gaze and tab-switch events |
+| `sourcing_criteria` | Per-company scoring weights |
 
 ---
 
-## 🐳 Docker
+## Environment variables
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `AWS_ACCESS_KEY_ID` | Recommended | Bedrock + Polly + **Rekognition** + S3 |
+| `AWS_SECRET_ACCESS_KEY` | Recommended | AWS secret |
+| `AWS_REGION` / `AWS_S3_REGION` | Optional | Region, default `us-east-1` |
+| `AWS_S3_BUCKET` | Optional | Resume and recording storage |
+| `LLM_PROVIDER` | Optional | `bedrock` (default when AWS set) or `gemini` |
+| `GEMINI_API_KEY` | Fallback | Scoring fallback + `make evaluate` |
+| `PROCTOR_PROVIDER` | Optional | Set `local` to force MediaPipe-only proctoring |
+| `PORT` | Optional | Backend port, default `8080` |
+| `NEXT_PUBLIC_API_URL` | Deploy | Frontend → backend URL, baked at build time |
+
+IAM permissions needed for proctoring: `rekognition:DetectLabels`, `rekognition:DetectFaces`.
+
+---
+
+## Docker
 
 ```bash
 docker-compose up --build
 ```
 
-Starts both the Go backend and Next.js frontend in containers.
-
 ---
 
-## 🔑 Environment Variables
+## Hackathon submission
 
-| Variable | Required | Description |
-|---|---|---|
-| `GEMINI_API_KEY` | Fallback | Google Gemini key (interview scoring + agent fallback) |
-| `LLM_PROVIDER` | Optional | `bedrock` (default when AWS set) or `gemini` |
-| `AWS_ACCESS_KEY_ID` | Recommended | Bedrock Claude + Polly TTS + S3 |
-| `AWS_SECRET_ACCESS_KEY` | Recommended | AWS secret |
-| `AWS_S3_BUCKET` | Optional | S3 bucket for resume/recording storage |
-| `AWS_S3_REGION` / `AWS_REGION` | Optional | AWS region (default: `us-east-1`) |
-| `PORT` | Optional | Backend port (default: `8080`) |
-| `NEXT_PUBLIC_API_URL` | Deploy | Frontend → backend URL (set at build time on Railway) |
+- **[WALKTHROUGH.md](./WALKTHROUGH.md)** — the demo video script
+- **[PROCTORING.md](./PROCTORING.md)** — proctoring internals and verification
+- **[REPRODUCTION.md](./REPRODUCTION.md)** — reproduce the benchmark
+- **[SUBMISSION.md](./SUBMISSION.md)** — judge checklist
 
-> **Without AWS:** Polly falls back to browser speech, agent uses Gemini, files save locally. Core interview + seeded audit demo still works.
+## Built by
 
----
-
-## 📦 Hackathon submission
-
-See **[SUBMISSION.md](./SUBMISSION.md)** for the judge checklist, Loom script, and deliverables.
-
-**5-minute demo path:**
-1. `/benchmark` — 60% vs 70%, fraud 0/4 → 4/4
-2. `/company/login` — `demo@zarasourcing.com` / `demo123`
-3. Dashboard → Alex Rivera → **Run GitHub Audit**
-4. `/apply/devops_job` — optional voice interview snippet
-
-## 👥 Built By
-
-**Olaleye Oyewunmi** ([@junnygram](https://github.com/Junnygram)) — Built for the micro1 Hackathon.
+**Olaleye Oyewunmi** ([@junnygram](https://github.com/Junnygram)) — for the micro1 Hackathon.

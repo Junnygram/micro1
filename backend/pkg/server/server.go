@@ -514,6 +514,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CandidateID string `json:"candidate_id"`
 		Mode        string `json:"mode"` // "baseline" or "advanced"
+		Force       bool   `json:"force"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -526,9 +527,13 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Preserve seeded demo audits — re-running without API keys wipes the judge demo
+	// Seeded demo audits are ground truth from dataset.json. Returning them to a
+	// benchmark run would score the dataset against itself and report 100% for both
+	// arms, so evaluation always forces a real agent run.
+	preserveSeeded := !req.Force && os.Getenv("AUTO_APPROVE") != "true"
+
 	existingAudits, _ := s.DB.GetClaimsAudit(cand.ID)
-	if cand.CompanyID == "demo_company" && cand.Status == "completed" && len(existingAudits) > 0 {
+	if preserveSeeded && cand.CompanyID == "demo_company" && cand.Status == "completed" && len(existingAudits) > 0 {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"preserved": true,

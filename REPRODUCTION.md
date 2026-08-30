@@ -75,23 +75,38 @@ make verify-benchmark
 
 <!-- BENCHMARK_START -->
 ### Last Execution Results
-* **Baseline Accuracy:** 100.0%
-* **ZaraSourcing Accuracy:** 100.0%
+* **Baseline Accuracy (Text Match):** 60.0% — 6/10
+* **ZaraSourcing Accuracy (Code Grounded):** 70.0% — 7/10
+* **Resume fraud caught:** Baseline 1/5 · ZaraSourcing 5/5
 
-| Candidate | GitHub | Vetting Role | Target Verdict | Baseline Verdict | ZaraSourcing Verdict | Final Match | Result |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Olaleye Oyewunmi | @junnygram | Senior Full-Stack Engineer (Go/Next.js) | `verified` | `verified` | `verified` | **92%** | ✅ SUCCESS |
-| Emily Chen | @emilycodes | Senior Frontend Developer | `verified` | `verified` | `verified` | **88%** | ✅ SUCCESS |
-| Jessica Taylor | @jesscloud | Cloud Infrastructure Engineer | `verified` | `verified` | `verified` | **85%** | ✅ SUCCESS |
-| Michael Chang | @mikecode | Full-Stack Node.js Developer | `verified` | `verified` | `verified` | **82%** | ✅ SUCCESS |
-| Carlos Gomez | @carlosfront | Next.js Tailwind Developer | `verified` | `verified` | `verified` | **80%** | ✅ SUCCESS |
-| Sarah Jenkins | @sarahml | Data Scientist & ML Engineer | `exaggerated` | `exaggerated` | `exaggerated` | **50%** | ✅ SUCCESS |
-| Alex Rivera | @riveradevops | DevOps & SRE Engineer | `exaggerated` | `exaggerated` | `exaggerated` | **45%** | ✅ SUCCESS |
-| David Kim | @davidsecurity | Security Engineer | `failed` | `failed` | `failed` | **40%** | ✅ SUCCESS |
-| Amara Okafor | @amaracodes | Python Backend Developer | `failed` | `failed` | `failed` | **38%** | ✅ SUCCESS |
-| Raj Patel | @rajconcurrency | Golang Backend Developer | `failed` | `failed` | `failed` | **35%** | ✅ SUCCESS |
+A case is correct when a `verified` target gets a `verified` verdict, or a non-`verified`
+target gets any non-`verified` verdict. Telling `exaggerated` from `failed` is not scored —
+both mean the same thing to a recruiter. Rule: `verdictMatchesTarget` in
+`backend/pkg/benchmark/compute.go`.
+
+| Candidate | GitHub | Vetting Role | Target | Baseline | ZaraSourcing | Score | Baseline | Agent |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Jessica Taylor | @jesscloud | Cloud Infrastructure Engineer | `verified` | `verified` | `verified` | **85%** | ✅ | ✅ |
+| Carlos Gomez | @carlosfront | Next.js Tailwind Developer | `verified` | `verified` | `verified` | **80%** | ✅ | ✅ |
+| Olaleye Oyewunmi | @junnygram | Senior Full-Stack Engineer (Go/Next.js) | `verified` | `verified` | `exaggerated` | **92%** | ✅ | ❌ over-flag |
+| Emily Chen | @emilycodes | Senior Frontend Developer | `verified` | `verified` | `exaggerated` | **88%** | ✅ | ❌ over-flag |
+| Michael Chang | @mikecode | Full-Stack Node.js Developer | `verified` | `verified` | `exaggerated` | **82%** | ✅ | ❌ over-flag |
+| Alex Rivera | @riveradevops | DevOps & SRE Engineer | `exaggerated` | `verified` | `exaggerated` | **45%** | ❌ missed | ✅ |
+| Sarah Jenkins | @sarahml | Data Scientist & ML Engineer | `exaggerated` | `verified` | `failed` | **50%** | ❌ missed | ✅ |
+| David Kim | @davidsecurity | Security Engineer | `failed` | `verified` | `failed` | **40%** | ❌ missed | ✅ |
+| Amara Okafor | @amaracodes | Python Backend Developer | `failed` | `verified` | `failed` | **38%** | ❌ missed | ✅ |
+| Raj Patel | @rajconcurrency | Golang Backend Developer | `failed` | `failed` | `failed` | **35%** | ✅ | ✅ |
 
 <!-- BENCHMARK_END -->
+
+> **Why the agent scores 70% and not higher:** it over-flags three genuine engineers as
+> `exaggerated`. That is the cost of catching all 5 fraud cases, where the text-only
+> baseline catches 1. The baseline never over-flags, but it clears 4 of 5 frauds.
+
+> **If you get 100% for both arms, the run is contaminated.** That happens when
+> `/api/sessions` returns seeded demo audits (which are dataset ground truth) instead of
+> running the agents, so the dataset gets scored against itself. `make verify-benchmark`
+> fails in that case — re-run `make evaluate` with a working key.
 
 ---
 

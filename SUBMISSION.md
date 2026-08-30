@@ -53,7 +53,7 @@ Re-run after rotating API key: `make evaluate`
 
 | Time | Screen | Say |
 |---|---|---|
-| 0:00 | `/benchmark` | Numbers: 60% vs 70%, fraud 0/4 → 4/4 |
+| 0:00 | `/benchmark` | Numbers: 60% vs 70%, fraud 1/5 → 5/5 |
 | 0:45 | `/company/login` | Full SaaS — post job, dashboard |
 | 1:30 | Alex Rivera audit | Live terminal — repos, files, citations |
 | 3:00 | Interview + AR (optional) | Private token link, gaze proctoring |

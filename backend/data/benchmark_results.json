@@ -1,35 +1,15 @@
 {
   "source": "make evaluate",
-  "evaluated_at": "2026-08-30",
-  "baseline_accuracy_pct": 100.0,
-  "agent_accuracy_pct": 100.0,
-  "baseline_correct": 10,
-  "agent_correct": 10,
+  "evaluated_at": "2026-08-28",
+  "baseline_accuracy_pct": 60.0,
+  "agent_accuracy_pct": 70.0,
+  "baseline_correct": 6,
+  "agent_correct": 7,
   "total_cases": 10,
   "fraud_cases_total": 5,
-  "baseline_fraud_caught": 5,
+  "baseline_fraud_caught": 1,
   "agent_fraud_caught": 5,
   "cases": [
-    {
-      "name": "Olaleye Oyewunmi",
-      "github": "junnygram",
-      "role": "Senior Full-Stack Engineer (Go/Next.js)",
-      "target": "verified",
-      "baseline": "verified",
-      "agent": "verified",
-      "score": "92%",
-      "correct": true
-    },
-    {
-      "name": "Emily Chen",
-      "github": "emilycodes",
-      "role": "Senior Frontend Developer",
-      "target": "verified",
-      "baseline": "verified",
-      "agent": "verified",
-      "score": "88%",
-      "correct": true
-    },
     {
       "name": "Jessica Taylor",
       "github": "jesscloud",
@@ -37,17 +17,7 @@
       "target": "verified",
       "baseline": "verified",
       "agent": "verified",
-      "score": "85%",
-      "correct": true
-    },
-    {
-      "name": "Michael Chang",
-      "github": "mikecode",
-      "role": "Full-Stack Node.js Developer",
-      "target": "verified",
-      "baseline": "verified",
-      "agent": "verified",
-      "score": "82%",
+      "score": "95%",
       "correct": true
     },
     {
@@ -57,49 +27,53 @@
       "target": "verified",
       "baseline": "verified",
       "agent": "verified",
-      "score": "80%",
+      "score": "90%",
       "correct": true
     },
     {
-      "name": "Sarah Jenkins",
-      "github": "sarahml",
-      "role": "Data Scientist & ML Engineer",
-      "target": "exaggerated",
-      "baseline": "exaggerated",
+      "name": "Olaleye Oyewunmi",
+      "github": "junnygram",
+      "role": "Senior Full-Stack Engineer (Go/Next.js)",
+      "target": "verified",
+      "baseline": "verified",
       "agent": "exaggerated",
-      "score": "50%",
-      "correct": true
+      "score": "89%",
+      "correct": false,
+      "note": "False positive \u2014 path guessing (addressed in Iter 2 with list_repo_files)"
+    },
+    {
+      "name": "Emily Chen",
+      "github": "emilycodes",
+      "role": "Senior Frontend Developer",
+      "target": "verified",
+      "baseline": "verified",
+      "agent": "exaggerated",
+      "score": "89%",
+      "correct": false,
+      "note": "False positive \u2014 path guessing (addressed in Iter 2 with list_repo_files)"
     },
     {
       "name": "Alex Rivera",
       "github": "riveradevops",
       "role": "DevOps & SRE Engineer",
       "target": "exaggerated",
-      "baseline": "exaggerated",
+      "baseline": "verified",
       "agent": "exaggerated",
       "score": "45%",
       "correct": true,
-      "highlight": true
+      "highlight": true,
+      "note": "Demo dashboard uses this score; agent caught inflated DevOps claims"
     },
     {
-      "name": "David Kim",
-      "github": "davidsecurity",
-      "role": "Security Engineer",
-      "target": "failed",
-      "baseline": "failed",
-      "agent": "failed",
-      "score": "40%",
-      "correct": true
-    },
-    {
-      "name": "Amara Okafor",
-      "github": "amaracodes",
-      "role": "Python Backend Developer",
-      "target": "failed",
-      "baseline": "failed",
-      "agent": "failed",
-      "score": "38%",
-      "correct": true
+      "name": "Michael Chang",
+      "github": "mikecode",
+      "role": "Full-Stack Node.js Developer",
+      "target": "verified",
+      "baseline": "verified",
+      "agent": "exaggerated",
+      "score": "79%",
+      "correct": false,
+      "note": "False positive \u2014 path guessing (addressed in Iter 2 with list_repo_files)"
     },
     {
       "name": "Raj Patel",
@@ -109,6 +83,36 @@
       "baseline": "failed",
       "agent": "failed",
       "score": "35%",
+      "correct": true
+    },
+    {
+      "name": "David Kim",
+      "github": "davidsecurity",
+      "role": "Security Engineer",
+      "target": "failed",
+      "baseline": "verified",
+      "agent": "failed",
+      "score": "40%",
+      "correct": true
+    },
+    {
+      "name": "Amara Okafor",
+      "github": "amaracodes",
+      "role": "Python Backend Developer",
+      "target": "failed",
+      "baseline": "verified",
+      "agent": "failed",
+      "score": "38%",
+      "correct": true
+    },
+    {
+      "name": "Sarah Jenkins",
+      "github": "sarahml",
+      "role": "Data Scientist & ML Engineer",
+      "target": "exaggerated",
+      "baseline": "verified",
+      "agent": "failed",
+      "score": "50%",
       "correct": true
     }
   ]
