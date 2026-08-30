@@ -13,17 +13,6 @@ interface Job {
 	created_at: string;
 }
 
-interface ApplySample {
-	name: string;
-	email: string;
-	github_username: string;
-	role: string;
-	target: string;
-	tag: string;
-	resume_preview: string;
-	resume_url: string;
-}
-
 export default function ApplyPage() {
 	const params = useParams();
 	const initialJobId = params.jobId as string;
@@ -31,7 +20,6 @@ export default function ApplyPage() {
 	const [jobs, setJobs] = useState<Job[]>([]);
 	const [loading, setLoading] = useState(true);
 
-	// Candidate Application form state
 	const [applyName, setApplyName] = useState('');
 	const [applyEmail, setApplyEmail] = useState('');
 	const [applyGithub, setApplyGithub] = useState('');
@@ -41,8 +29,6 @@ export default function ApplyPage() {
 	const [applyLoading, setApplyLoading] = useState(false);
 	const [interviewLink, setInterviewLink] = useState('');
 	const [applySuccess, setApplySuccess] = useState(false);
-	const [applySamples, setApplySamples] = useState<ApplySample[]>([]);
-	const [selectedSample, setSelectedSample] = useState('');
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	const apiBase = getApiBase();
@@ -54,13 +40,10 @@ export default function ApplyPage() {
 				if (!res.ok) throw new Error('Failed to fetch jobs');
 				const data = await res.json();
 				setJobs(data || []);
-				
-				// Set initial job role based on URL parameter if it exists
+
 				if (initialJobId && data) {
 					const job = data.find((j: Job) => j.id === initialJobId);
-					if (job) {
-						setApplyRole(job.title);
-					}
+					if (job) setApplyRole(job.title);
 				} else if (data && data.length > 0 && !applyJobID) {
 					setApplyJobID(data[0].id);
 					setApplyRole(data[0].title);
@@ -72,37 +55,7 @@ export default function ApplyPage() {
 			}
 		};
 		fetchJobs();
-		fetch(`${apiBase}/api/demo/apply-samples`)
-			.then(r => (r.ok ? r.json() : null))
-			.then(json => { if (json?.samples) setApplySamples(json.samples); })
-			.catch(() => {});
 	}, [initialJobId, apiBase]);
-
-	const applyDemoSample = async (sample: ApplySample) => {
-		setApplyName(sample.name);
-		setApplyEmail(sample.email);
-		setApplyGithub(sample.github_username);
-		setApplyRole(sample.role);
-		setSelectedSample(sample.github_username);
-		setApplySuccess(false);
-		try {
-			const res = await fetch(`${apiBase}${sample.resume_url}`);
-			if (!res.ok) throw new Error('Could not load demo resume');
-			const text = await res.text();
-			const blob = new Blob([text], { type: 'text/plain' });
-			const file = new File([blob], `${sample.github_username}_resume.txt`, { type: 'text/plain' });
-			setApplyResume(file);
-			if (fileInputRef.current) fileInputRef.current.value = '';
-		} catch {
-			setApplyResume(null);
-		}
-	};
-
-	const tagColor = (target: string) => {
-		if (target === 'exaggerated') return '#f87171';
-		if (target === 'failed') return '#fb923c';
-		return '#34d399';
-	};
 
 	const handleApply = async () => {
 		if (!applyName || !applyEmail || !applyGithub) {
@@ -119,7 +72,6 @@ export default function ApplyPage() {
 			formData.append('job_id', applyJobID || 'default_job');
 			formData.append('role', applyRole || 'Full-Stack Developer');
 
-			// Resolve company_id from the job so candidates appear on the right dashboard
 			const selectedJobObj = jobs.find(j => j.id === applyJobID);
 			if (selectedJobObj?.company_id) {
 				formData.append('company_id', selectedJobObj.company_id);
@@ -135,7 +87,6 @@ export default function ApplyPage() {
 			if (!res.ok) throw new Error('Application submission failed');
 			const candidate = await res.json();
 
-			// Auto-create interview session and get the link
 			try {
 				const sessionRes = await fetch(`${apiBase}/api/interview/start`, {
 					method: 'POST',
@@ -154,10 +105,7 @@ export default function ApplyPage() {
 			setApplyEmail('');
 			setApplyGithub('');
 			setApplyResume(null);
-			setSelectedSample('');
 			if (fileInputRef.current) fileInputRef.current.value = '';
-			
-			// No redirect — candidate stays to copy their interview link
 		} catch (err) {
 			alert((err as Error).message);
 		} finally {
@@ -168,9 +116,7 @@ export default function ApplyPage() {
 	const handleJobSelect = (jobId: string) => {
 		setApplyJobID(jobId);
 		const job = jobs.find(j => j.id === jobId);
-		if (job) {
-			setApplyRole(job.title);
-		}
+		if (job) setApplyRole(job.title);
 	};
 
 	if (loading) {
@@ -179,7 +125,7 @@ export default function ApplyPage() {
 
 	return (
 		<div className="app-container" style={{ paddingBottom: '5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '3rem' }}>
-			
+
 			<div style={{ width: '100%', maxWidth: '720px', marginBottom: '2rem' }}>
 				<Link href="/" style={{ color: 'var(--text-secondary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
 					← Back to Home
@@ -190,21 +136,20 @@ export default function ApplyPage() {
 				<div className="panel fade-in-up" style={{ padding: '2.5rem' }}>
 					<div style={{ textAlign: 'center', marginBottom: '2rem' }}>
 						<div className="logo-icon" style={{ margin: '0 auto 1.5rem auto', background: 'linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%)' }}>ZS</div>
-						<h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#ffffff', margin: 0 }}>Join the Candidate Pipeline</h3>
+						<h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#ffffff', margin: 0 }}>Apply for this role</h3>
 						<p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.5rem' }}>
-							Apply for a position by attaching your resume. Our AI agent will automatically audit your code footprint against your claims.
+							Submit your resume and GitHub. After applying, you&apos;ll receive a link to your AI voice interview with proctored video.
 						</p>
 					</div>
 
 					{applySuccess && (
 						<div style={{ padding: '1.5rem', background: 'rgba(16,185,129,0.08)', border: '1px solid var(--color-success)', borderRadius: '0.75rem', marginBottom: '1.5rem' }}>
 							<p style={{ color: '#6ee7b7', fontWeight: 700, fontSize: '1rem', marginBottom: '0.5rem' }}>✓ Application submitted!</p>
-							<p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
-								Known benchmark GitHub profiles (e.g. @riveradevops) get instant GitHub audit data on the company dashboard.
-							</p>
 							{interviewLink ? (
 								<>
-									<p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.75rem' }}>Your interview link is ready. Copy it and open it in Chrome or Edge to start.</p>
+									<p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+										Your private interview link is ready. Open it in <strong>Chrome or Edge</strong>, allow camera and microphone, then click <strong>Start Interview</strong>.
+									</p>
 									<div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', background: 'rgba(0,0,0,0.3)', padding: '0.65rem 0.85rem', borderRadius: '0.5rem', border: '1px solid rgba(6,182,212,0.3)' }}>
 										<span style={{ flex: 1, fontSize: '0.8rem', color: 'var(--color-accent)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{interviewLink}</span>
 										<button className="btn btn-primary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', flexShrink: 0 }}
@@ -212,7 +157,7 @@ export default function ApplyPage() {
 											Copy
 										</button>
 										<a href={interviewLink} className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', flexShrink: 0 }} target="_blank" rel="noreferrer">
-											Open →
+											Start interview →
 										</a>
 									</div>
 								</>
@@ -223,37 +168,6 @@ export default function ApplyPage() {
 					)}
 
 					<div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-						{applySamples.length > 0 && (
-							<div style={{ padding: '1.25rem', background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.25)', borderRadius: '0.75rem' }}>
-								<p style={{ fontSize: '0.85rem', fontWeight: 700, color: '#e9d5ff', marginBottom: '0.35rem' }}>Demo candidates — one-click fill</p>
-								<p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.85rem' }}>
-									Pick a benchmark profile to pre-fill the form and attach a sample resume. Known GitHub handles get instant audit data on the dashboard.
-								</p>
-								<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.5rem' }}>
-									{applySamples.map(s => (
-										<button
-											key={s.github_username}
-											type="button"
-											onClick={() => applyDemoSample(s)}
-											style={{
-												padding: '0.65rem 0.5rem',
-												background: selectedSample === s.github_username ? 'rgba(168,85,247,0.2)' : 'rgba(0,0,0,0.35)',
-												border: `1px solid ${selectedSample === s.github_username ? 'var(--color-accent)' : 'var(--border-color)'}`,
-												borderRadius: '0.5rem',
-												cursor: 'pointer',
-												textAlign: 'left',
-											}}
-										>
-											<span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#fff' }}>{s.name.split(' ')[0]}</span>
-											<span style={{ display: 'block', fontSize: '0.65rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>@{s.github_username}</span>
-											<span style={{ display: 'block', fontSize: '0.6rem', marginTop: '0.25rem', color: tagColor(s.target) }}>{s.tag}</span>
-										</button>
-									))}
-								</div>
-							</div>
-						)}
-
-						{/* Target Opening Selector */}
 						<div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
 							<label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Target Opening *</label>
 							<select value={applyJobID} onChange={e => handleJobSelect(e.target.value)} disabled={!!initialJobId}
@@ -267,15 +181,13 @@ export default function ApplyPage() {
 							{initialJobId && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Role locked from selection</span>}
 						</div>
 
-						{/* Name */}
 						<div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
 							<label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Full Name *</label>
-							<input type="text" value={applyName} onChange={e => setApplyName(e.target.value)} placeholder="Olaleye Oyewunmi"
+							<input type="text" value={applyName} onChange={e => setApplyName(e.target.value)} placeholder="Your full name"
 								style={{ padding: '0.85rem 1rem', background: '#09070a', border: '1px solid var(--border-color)', borderRadius: '0.5rem', color: 'var(--text-primary)', fontSize: '0.9rem', outline: 'none' }}
 							/>
 						</div>
 
-						{/* Email */}
 						<div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
 							<label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Email Address *</label>
 							<input type="email" value={applyEmail} onChange={e => setApplyEmail(e.target.value)} placeholder="you@example.com"
@@ -283,15 +195,13 @@ export default function ApplyPage() {
 							/>
 						</div>
 
-						{/* GitHub Username */}
 						<div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
 							<label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>GitHub Username *</label>
-							<input type="text" value={applyGithub} onChange={e => setApplyGithub(e.target.value)} placeholder="junnygram"
+							<input type="text" value={applyGithub} onChange={e => setApplyGithub(e.target.value)} placeholder="your-github-handle"
 								style={{ padding: '0.85rem 1rem', background: '#09070a', border: '1px solid var(--border-color)', borderRadius: '0.5rem', color: 'var(--text-primary)', fontSize: '0.9rem', outline: 'none' }}
 							/>
 						</div>
 
-						{/* Resume Upload */}
 						<div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
 							<label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Resume File (PDF / DOCX)</label>
 							<div

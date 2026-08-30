@@ -340,6 +340,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/demo/report", s.handleDemoReport)
 	mux.HandleFunc("/api/demo/preview", s.handleDemoPreview)
 	mux.HandleFunc("/api/demo/status", s.handleDemoStatus)
+	mux.HandleFunc("/api/demo/interview", s.handleDemoInterview)
 	mux.HandleFunc("/api/demo/apply-samples", s.handleDemoApplySamples)
 	mux.HandleFunc("/api/demo/resume", s.handleDemoResume)
 	mux.HandleFunc("/api/recruiter/chat", s.handleRecruiterChat)
@@ -1606,6 +1607,46 @@ func (s *Server) handleDemoReport(w http.ResponseWriter, r *http.Request) {
 		"audits":     audits,
 		"proctoring": proctoring,
 		"benchmark":  benchmarkCase,
+	})
+}
+
+// handleDemoInterview — one-click voice + AR interview room for judges (no apply form).
+func (s *Server) handleDemoInterview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	jobID := "devops_job"
+	candidateID := uuid.New().String()
+	shortID := candidateID[:8]
+	name := "Demo Candidate"
+	email := fmt.Sprintf("demo-interview+%s@zarasourcing.local", shortID)
+	github := fmt.Sprintf("demo_%s", shortID)
+	role := "DevOps & Cloud SRE"
+
+	if _, err := s.DB.CreateCandidate(candidateID, name, email, role, github, jobID, "", ""); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	token := uuid.New().String()
+	sessionID := uuid.New().String()
+	session, err := s.DB.CreateInterviewSession(sessionID, candidateID, jobID, token)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	qs, _ := s.DB.GetInterviewQuestions(jobID)
+	qs = interviewQuestionsForJob(qs, jobID)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"token":    token,
+		"path":     "/interview/" + token,
+		"session":  session,
+		"questions": qs,
+		"candidate": map[string]string{"id": candidateID, "name": name, "role": role},
 	})
 }
 

@@ -94,14 +94,23 @@ const STEPS = [
 	},
 	{
 		num: 6,
-		title: 'Apply flow + demo CVs',
-		desc: 'Ten one-click demo profiles. Resumes to S3/local storage. Known GitHub handles seed instant audit data.',
-		cta: 'Apply (DevOps role)',
-		href: '/apply/devops_job',
+		title: 'Voice interview + AR proctoring',
+		desc: 'One-click demo interview room — AI voice (Polly/Bedrock), gaze tracking, multi-face and phone alerts via MediaPipe, tab-switch monitoring. Use Chrome, allow camera + mic.',
+		cta: 'Launch demo interview',
+		launchInterview: true,
+		highlight: true,
 		noKeys: true,
 	},
 	{
 		num: 7,
+		title: 'Candidate apply flow',
+		desc: 'Real application form — resume upload, GitHub username, then private interview link. No benchmark shortcuts on the public apply page.',
+		cta: 'Open apply form',
+		href: '/apply/devops_job',
+		noKeys: true,
+	},
+	{
+		num: 8,
 		title: 'Reproduce locally',
 		desc: 'make verify-benchmark (no key) · make evaluate (Gemini key, ~2–5 min) · trajectories in backend/data/trajectories/',
 		cta: 'Reproduction guide',
@@ -113,8 +122,25 @@ const STEPS = [
 export default function DemoGuidePage() {
 	const [active, setActive] = useState(0);
 	const [loggingIn, setLoggingIn] = useState(false);
+	const [launchingInterview, setLaunchingInterview] = useState(false);
 	const router = useRouter();
 	const apiBase = getApiBase();
+
+	const launchDemoInterview = async () => {
+		setLaunchingInterview(true);
+		try {
+			const res = await fetch(`${apiBase}/api/demo/interview`, { method: 'POST' });
+			if (!res.ok) throw new Error('Could not start demo interview');
+			const data = await res.json();
+			const path = data.path || (data.token ? `/interview/${data.token}` : '');
+			if (!path) throw new Error('No interview token returned');
+			router.push(path);
+		} catch (e) {
+			alert((e as Error).message);
+		} finally {
+			setLaunchingInterview(false);
+		}
+	};
 
 	const demoLogin = async () => {
 		setLoggingIn(true);
@@ -187,7 +213,11 @@ export default function DemoGuidePage() {
 					</span>
 				)}
 				<div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-					{step.demoLogin ? (
+					{step.launchInterview ? (
+						<button className="btn btn-primary" onClick={launchDemoInterview} disabled={launchingInterview}>
+							{launchingInterview ? 'Opening interview room…' : '🎙 Launch demo interview →'}
+						</button>
+					) : step.demoLogin ? (
 						<button className="btn btn-primary" onClick={demoLogin} disabled={loggingIn}>
 							{loggingIn ? 'Signing in…' : '⚡ One-click demo login'}
 						</button>
@@ -210,12 +240,19 @@ export default function DemoGuidePage() {
 						{ label: 'Benchmark', href: '/benchmark' },
 						{ label: 'Fraud report', href: '/report/riveradevops' },
 						{ label: 'Dashboard', href: '/company/dashboard' },
+						{ label: 'Voice + AR demo', href: '/demo', onClick: launchDemoInterview },
 						{ label: 'Apply', href: '/apply/devops_job' },
 						{ label: 'Pre-submit', href: 'https://github.com/Junnygram/micro1/blob/main/PRE_SUBMIT.md' },
 					].map(l => (
-						<Link key={l.label} href={l.href} className="btn btn-secondary" style={{ fontSize: '0.75rem' }} target={l.href.startsWith('http') ? '_blank' : undefined}>
-							{l.label}
-						</Link>
+						l.onClick ? (
+							<button key={l.label} className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={l.onClick} disabled={launchingInterview}>
+								{l.label}
+							</button>
+						) : (
+							<Link key={l.label} href={l.href} className="btn btn-secondary" style={{ fontSize: '0.75rem' }} target={l.href.startsWith('http') ? '_blank' : undefined}>
+								{l.label}
+							</Link>
+						)
 					))}
 				</div>
 				<p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '1rem' }}>

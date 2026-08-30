@@ -96,7 +96,21 @@ Open tabs:
 - [ ] Show claims list + **Replay saved audit** (10 sec)
 - [ ] **Do NOT** click "Run GitHub Audit" on demo candidates
 
-**Skip if short on time:** `/apply/devops_job` demo CV grid
+### 3d. Voice interview + AR proctoring (45 sec)
+
+**Screen:** `/demo` → Step 6 → **Launch demo interview**
+
+**Say:**
+
+> "After applying, candidates get a private link to a **Zara-style voice interview**. In production this uses **AWS Polly** for voice and **Bedrock** for scoring — with **AR proctoring** on the webcam: gaze lock, tab-switch detection, multi-face and phone alerts via MediaPipe."
+
+- [ ] Click **Launch demo interview** on `/demo` (or quick link **Voice + AR demo**)
+- [ ] Use **Chrome**, allow **camera + microphone**
+- [ ] Click **Start Interview →**
+- [ ] Point at right panel: **LOCKED ON**, face mesh, **REC**, tab-switch counter
+- [ ] Optional: look away → **GAZE DEVIATION**; switch tab once → counter increments
+
+**Skip if short on time:** mention interview exists; don't run full 10-minute session.
 
 ---
 
@@ -165,7 +179,8 @@ Open tabs:
 | 0:00 | Zara + problem | `/` |
 | 0:45 | What ZaraSourcing does | landing / `/demo` |
 | 1:45 | Short UI review | dashboard → report → Alex audit |
-| 3:15 | Benchmark explained | `/benchmark` |
+| 2:45 | Voice + AR interview | `/demo` → Launch demo interview |
+| 3:30 | Benchmark explained | `/benchmark` |
 | 4:45 | `make evaluate` | terminal |
 | 5:30 | Close | `/benchmark` or GitHub |
 
@@ -196,6 +211,7 @@ Benchmark → make evaluate (baseline vs agent, 10 cases)
 | | |
 |---|---|
 | Live demo | https://micro1-production.up.railway.app/demo |
+| Voice + AR interview | https://micro1-production.up.railway.app/demo → Launch demo interview |
 | Benchmark | https://micro1-production.up.railway.app/benchmark |
 | Fraud report | https://micro1-production.up.railway.app/report/riveradevops |
 | Login | `demo@zarasourcing.com` / `demo123` |
@@ -209,7 +225,7 @@ Benchmark → make evaluate (baseline vs agent, 10 cases)
 | Issue | Say |
 |-------|-----|
 | Dashboard empty | "Seeded on deploy — fraud report still proves the agent" |
-| No full Zara interview in video | "Interview flow is on `/apply` — AR proctoring runs in Chrome with mic/camera" |
+| No full Zara interview in video | "Use `/demo` → **Launch demo interview** — Chrome + camera/mic for AR proctoring" |
 | Benchmark mismatch | "Run `make evaluate` — same JSON file this page reads" |
 
 ---
