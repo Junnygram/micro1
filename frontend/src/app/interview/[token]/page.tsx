@@ -489,8 +489,16 @@ export default function InterviewPage() {
 	};
 
 	const speak = async (text: string, onDone: () => void) => {
+		let settled = false;
+		const done = () => {
+			if (settled) return;
+			settled = true;
+			onDone();
+		};
+		window.setTimeout(done, Math.min(18000, 1200 + text.length * 70));
+
 		if (pollyOkRef.current === false) {
-			speakBrowser(text, onDone);
+			speakBrowser(text, done);
 			return;
 		}
 		try {
@@ -500,24 +508,24 @@ export default function InterviewPage() {
 			window.clearTimeout(timer);
 			if (!res.ok) {
 				pollyOkRef.current = false;
-				speakBrowser(text, onDone);
+				speakBrowser(text, done);
 				return;
 			}
 			const blob = await res.blob();
 			if (!blob.size || !(blob.type || '').startsWith('audio')) {
 				pollyOkRef.current = false;
-				speakBrowser(text, onDone);
+				speakBrowser(text, done);
 				return;
 			}
 			pollyOkRef.current = true;
 			const url = URL.createObjectURL(blob);
 			const audio = new Audio(url);
-			audio.onended = () => { URL.revokeObjectURL(url); onDone(); };
-			audio.onerror = () => { URL.revokeObjectURL(url); speakBrowser(text, onDone); };
+			audio.onended = () => { URL.revokeObjectURL(url); done(); };
+			audio.onerror = () => { URL.revokeObjectURL(url); speakBrowser(text, done); };
 			await audio.play();
 		} catch {
 			pollyOkRef.current = false;
-			speakBrowser(text, onDone);
+			speakBrowser(text, done);
 		}
 	};
 
