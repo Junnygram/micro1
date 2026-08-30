@@ -290,9 +290,9 @@ export default function InterviewPage() {
 
 	// Interview phase
 	return (
-		<div style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: '1fr 340px', gap: 0 }}>
+		<div className="interview-grid">
 			{/* Left — question + transcript */}
-			<div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+			<div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 				{/* Progress */}
 				<div>
 					<div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>

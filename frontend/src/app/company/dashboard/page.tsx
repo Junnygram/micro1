@@ -139,9 +139,9 @@ export default function CompanyDashboard() {
 				</div>
 			</header>
 
-			<div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: '1.5rem' }}>
+			<div className="dashboard-grid">
 				{/* Sidebar — Jobs */}
-				<aside>
+				<aside style={{ minWidth: 0 }}>
 					<div className="panel" style={{ padding: '1rem' }}>
 						<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
 							<span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)' }}>Your Jobs</span>
@@ -171,7 +171,7 @@ export default function CompanyDashboard() {
 				</aside>
 
 				{/* Main content */}
-				<main style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+				<main style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', minWidth: 0 }}>
 					{!selectedJob ? (
 						<div className="panel" style={{ textAlign: 'center', padding: '4rem', color: 'var(--text-muted)' }}>
 							<p style={{ fontSize: '1.1rem' }}>Create a job to get started</p>
@@ -180,12 +180,12 @@ export default function CompanyDashboard() {
 						<>
 							{/* Job header */}
 							<div className="panel" style={{ padding: '1.5rem' }}>
-								<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+								<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
 									<div>
 										<h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{selectedJob.title}</h2>
 										<p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.35rem', maxWidth: '600px' }}>{selectedJob.description}</p>
 									</div>
-									<div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
+									<div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', flexShrink: 0 }}>
 										<button className="btn btn-secondary" style={{ fontSize: '0.8rem' }} onClick={() => setShowQuestions(!showQuestions)}>
 											{showQuestions ? 'Close' : '⚙ Interview Questions'}
 										</button>

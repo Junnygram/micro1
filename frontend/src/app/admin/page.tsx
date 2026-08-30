@@ -39,7 +39,7 @@ export default function AdminPage() {
 			</header>
 
 			{/* Stats */}
-			<div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.25rem', marginBottom: '2rem' }}>
+			<div className="admin-stats-grid">
 				{[
 					{ label: 'Companies', value: stats?.total_companies ?? 0, color: 'var(--color-accent)' },
 					{ label: 'Job Openings', value: stats?.total_jobs ?? 0, color: '#a855f7' },
@@ -60,17 +60,14 @@ export default function AdminPage() {
 					<p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem 0', fontSize: '0.9rem' }}>No companies registered yet.</p>
 				) : (
 					<div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-						<div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 120px 120px', gap: '1rem', padding: '0.5rem 1rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-							<span>Company</span><span>Email</span><span>Plan</span><span>Joined</span>
-						</div>
 						{companies.map(c => (
-							<div key={c.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 120px 120px', gap: '1rem', padding: '0.85rem 1rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '0.5rem', alignItems: 'center' }}>
-								<p style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)', margin: 0 }}>{c.name}</p>
-								<p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>{c.email}</p>
-								<span style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', borderRadius: '0.25rem', background: c.plan === 'enterprise' ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.05)', color: c.plan === 'enterprise' ? 'var(--color-accent)' : 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', display: 'inline-block' }}>
+							<div key={c.id} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1rem', padding: '0.85rem 1rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '0.5rem', alignItems: 'center' }}>
+								<p style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)', margin: 0, flex: '1 1 140px' }}>{c.name}</p>
+								<p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0, flex: '1 1 160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.email}</p>
+								<span style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', borderRadius: '0.25rem', background: c.plan === 'enterprise' ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.05)', color: c.plan === 'enterprise' ? 'var(--color-accent)' : 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', display: 'inline-block', flexShrink: 0 }}>
 									{c.plan}
 								</span>
-								<p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>{new Date(c.created_at).toLocaleDateString()}</p>
+								<p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0, flexShrink: 0 }}>{new Date(c.created_at).toLocaleDateString()}</p>
 							</div>
 						))}
 					</div>

@@ -74,7 +74,7 @@ export default function LandingPage() {
 						</p>
 					</div>
 				</div>
-				<div style={{ display: 'flex', gap: '0.75rem' }}>
+				<div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
 					<Link href="/company/login" className="btn btn-secondary" style={{ fontSize: '0.9rem', padding: '0.6rem 1.25rem', fontWeight: 600 }}>
 						For Companies
 					</Link>
@@ -111,7 +111,7 @@ export default function LandingPage() {
 					🚀 Grounded AI Vetting Platform
 				</div>
 				<h2 style={{
-					fontSize: '2.75rem',
+					fontSize: 'clamp(1.6rem, 5vw, 2.75rem)',
 					fontWeight: 900,
 					background: 'linear-gradient(135deg, #ffffff 30%, #c084fc 100%)',
 					WebkitBackgroundClip: 'text',
@@ -130,7 +130,7 @@ export default function LandingPage() {
 				}}>
 					Eliminate technical vetting plagiarism and CV inflation. Reconcile engineer resume claims directly with public GitHub footprints, code syntax quality, and real-time gaze-proctored audio screenings.
 				</p>
-				<div style={{ display: 'flex', justifyContent: 'center', gap: '1rem' }}>
+				<div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', flexWrap: 'wrap' }}>
 					<Link href="/apply/general" className="btn btn-primary" style={{ padding: '0.8rem 1.75rem', fontSize: '1rem', fontWeight: 600 }}>
 						Apply to Positions
 					</Link>
@@ -148,7 +148,7 @@ export default function LandingPage() {
 						Enterprise-grade tools built to evaluate actual capabilities.
 					</p>
 				</div>
-				<div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem' }}>
+				<div className="stats-grid" style={{ gap: '1.5rem' }}>
 					<div className="panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
 						<span style={{ fontSize: '1.75rem' }}>🤖</span>
 						<h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)' }}>AI-Powered Screening</h4>
@@ -195,7 +195,7 @@ export default function LandingPage() {
 				{loading ? (
 					<p style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>Loading demo pipeline profiles...</p>
 				) : (
-					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
+					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.5rem' }}>
 						{candidates.slice(0, 6).map((c, idx) => (
 							<div key={c.id} className="panel fade-in-up" style={{
 								animationDelay: `${idx * 0.1}s`,
@@ -252,7 +252,7 @@ export default function LandingPage() {
 				color: 'var(--text-muted)',
 				fontSize: '0.85rem'
 			}}>
-				<div style={{ display: 'flex', gap: '2rem' }}>
+				<div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
 					<Link href="/company/login" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>Company Login</Link>
 					<Link href="/apply/general" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>Candidate Application</Link>
 					<Link href="/admin" style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}>Platform Admin</Link>
