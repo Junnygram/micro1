@@ -738,11 +738,11 @@ export default function InterviewPage() {
 			<div className="panel" style={{ maxWidth: '560px', width: '100%', padding: '2.5rem', textAlign: 'center' }}>
 				<div className="logo-icon" style={{ margin: '0 auto 1.5rem auto', background: 'linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%)', width: '3rem', height: '3rem', fontSize: '1rem' }}>ZS</div>
 				<h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
-					{isDemoMode ? 'Voice interview + AR demo' : `Hi ${candidate?.name?.split(' ')[0] || 'there'} 👋`}
+					{isDemoMode ? 'Voice interview' : `Hi ${candidate?.name?.split(' ')[0] || 'there'} 👋`}
 				</h2>
 				<p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '2rem', lineHeight: '1.6' }}>
 					{isDemoMode ? (
-						<>Two quick questions — <strong style={{ color: 'var(--text-primary)' }}>AI voice asks, you speak answers</strong>. Webcam shows face tracking, gaze lock, and cheating alerts. Use <strong>Chrome</strong> with camera + mic.</>
+						<>The AI will ask you questions out loud. <strong style={{ color: 'var(--text-primary)' }}>Speak your answers</strong> — the webcam tracks your face and flags integrity issues. Use <strong>Chrome</strong> with camera + mic.</>
 					) : (
 						<>You&apos;re about to take an AI-powered voice interview for <strong style={{ color: 'var(--text-primary)' }}>{candidate?.role}</strong>. The AI will greet you, ask you to introduce yourself, then ask {questions.length} technical question{questions.length !== 1 ? 's' : ''}. Just speak naturally.</>
 					)}
@@ -750,11 +750,9 @@ export default function InterviewPage() {
 				<div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '2rem', textAlign: 'left', padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '0.5rem', border: '1px solid var(--border-color)' }}>
 					{(isDemoMode ? [
 						'Chrome or Edge — allow camera + microphone',
-						'You will HEAR the AI voice ask 2 questions',
 						'Speak your answer — live transcription on the left',
 						'Face mesh + LOCKED ON on the right',
-						'Demo: hold up a phone → Amazon Rekognition flags it',
-						'~2 minutes total',
+						'Look away or hold up a phone — proctoring flags it',
 					] : [
 						'Use Chrome or Edge for best voice recognition',
 						'Allow microphone & camera access when prompted',
@@ -769,7 +767,7 @@ export default function InterviewPage() {
 					))}
 				</div>
 				<button className="btn btn-primary" style={{ width: '100%', padding: '1rem', fontSize: '1rem', fontWeight: 700 }} onClick={startInterview}>
-					{isDemoMode ? 'Start 2-question demo →' : 'Start Interview →'}
+					Start Interview →
 				</button>
 			</div>
 		</div>

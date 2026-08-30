@@ -94,8 +94,8 @@ const STEPS = [
 	},
 	{
 		num: 6,
-		title: 'Voice interview + AR proctoring (2 questions)',
-		desc: 'One click → hear AI voice ask 2 questions, speak answers, see the live face mesh. Integrity verdicts come from Amazon Rekognition server-side: hold up a phone and it returns the label with its confidence score. Also flags a second person, head pose off-screen, and tab switches. ~2 min.',
+		title: 'Voice interview + AR proctoring',
+		desc: 'AI asks out loud, you speak answers, live face mesh on the right. Integrity verdicts come from Amazon Rekognition: hold up a phone and it returns the label with confidence. Also flags a second person, head pose off-screen, and tab switches.',
 		cta: 'Launch demo interview',
 		launchInterview: true,
 		highlight: true,
