@@ -53,9 +53,8 @@ const STEPS = [
 		num: 1,
 		title: 'The problem: Zara vs resume fraud',
 		desc: 'micro1\'s Zara agent runs AI voice interviews — but cannot verify GitHub claims. ZaraSourcing adds code-grounded audit with cited evidence. Agent recommends; recruiter decides.',
-		cta: 'Read full script',
-		href: 'https://github.com/Junnygram/micro1/blob/main/WALKTHROUGH.md',
-		external: true,
+		cta: 'See the product',
+		href: '/',
 	},
 	{
 		num: 2,
@@ -78,7 +77,7 @@ const STEPS = [
 		num: 4,
 		title: 'Company dashboard',
 		desc: 'Jobs, applicants, composite scores, Recruiter AI chat, candidate compare. 10 seeded candidates — Alex at 45%.',
-		cta: 'Demo login',
+		cta: 'Open hiring desk',
 		href: '/company/login',
 		demoLogin: true,
 		noKeys: true,
@@ -96,7 +95,7 @@ const STEPS = [
 		num: 6,
 		title: 'Voice interview + AR proctoring',
 		desc: 'AI asks out loud, you speak answers, live face mesh on the right. Integrity verdicts come from Amazon Rekognition: hold up a phone and it returns the label with confidence. Also flags a second person, head pose off-screen, and tab switches.',
-		cta: 'Launch demo interview',
+		cta: 'Start interview',
 		launchInterview: true,
 		highlight: true,
 		noKeys: true,
@@ -169,18 +168,16 @@ export default function DemoGuidePage() {
 				<div className="header-title-wrapper">
 					<Link href="/" style={{ textDecoration: 'none' }}><div className="logo-icon">ZS</div></Link>
 					<div>
-						<h1 style={{ fontSize: '1.5rem' }}>Demo Walkthrough</h1>
-						<p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Same flow as WALKTHROUGH.md · {STEPS.length} steps</p>
+						<h1 style={{ fontSize: '1.5rem' }}>Product tour</h1>
+						<p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Walk the hiring flow in order</p>
 					</div>
 				</div>
 				<Link href="/" className="btn btn-secondary" style={{ fontSize: '0.8rem' }}>← Home</Link>
 			</header>
 
-			<div className="panel" style={{ padding: '1.25rem', marginBottom: '1.25rem', border: '1px solid rgba(168,85,247,0.25)', background: 'rgba(168,85,247,0.06)' }}>
-				<p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
-					<strong style={{ color: '#e9d5ff' }}>Recording Loom?</strong> Follow{' '}
-					<a href="https://github.com/Junnygram/micro1/blob/main/WALKTHROUGH.md" target="_blank" rel="noreferrer" style={{ color: 'var(--color-accent)' }}>WALKTHROUGH.md</a>
-					{' '}on Railway — Zara story → short UI → benchmark → <code>make evaluate</code>.
+			<div className="panel" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
+				<p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
+					Start here if you want a guided path through the product — audit, hiring desk, then the voice interview.
 				</p>
 			</div>
 
@@ -209,17 +206,17 @@ export default function DemoGuidePage() {
 				<p style={{ color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '1rem' }}>{step.desc}</p>
 				{step.noKeys && (
 					<span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: '0.25rem', background: 'rgba(16,185,129,0.12)', color: '#10b981', fontWeight: 700, display: 'inline-block', marginBottom: '1rem' }}>
-						✓ No API keys for this step
+						Ready to try
 					</span>
 				)}
 				<div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
 					{step.launchInterview ? (
 						<button className="btn btn-primary" onClick={launchDemoInterview} disabled={launchingInterview}>
-							{launchingInterview ? 'Opening interview room…' : '🎙 Launch demo interview →'}
+							{launchingInterview ? 'Opening interview…' : 'Start interview'}
 						</button>
 					) : step.demoLogin ? (
 						<button className="btn btn-primary" onClick={demoLogin} disabled={loggingIn}>
-							{loggingIn ? 'Signing in…' : '⚡ One-click demo login'}
+							{loggingIn ? 'Signing in…' : 'Open hiring desk'}
 						</button>
 					) : step.external ? (
 						<a href={step.href} className="btn btn-primary" target="_blank" rel="noreferrer">{step.cta} →</a>
@@ -236,13 +233,11 @@ export default function DemoGuidePage() {
 				<p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.75rem' }}>Quick links</p>
 				<div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
 					{[
-						{ label: 'Video script', href: 'https://github.com/Junnygram/micro1/blob/main/WALKTHROUGH.md' },
 						{ label: 'Benchmark', href: '/benchmark' },
 						{ label: 'Fraud report', href: '/report/riveradevops' },
 						{ label: 'Dashboard', href: '/company/dashboard' },
 						{ label: 'Voice + AR demo', href: '/demo', onClick: launchDemoInterview },
 						{ label: 'Apply', href: '/apply/devops_job' },
-						{ label: 'Pre-submit', href: 'https://github.com/Junnygram/micro1/blob/main/PRE_SUBMIT.md' },
 					].map(l => (
 						l.onClick ? (
 							<button key={l.label} className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={l.onClick} disabled={launchingInterview}>
@@ -256,9 +251,8 @@ export default function DemoGuidePage() {
 					))}
 				</div>
 				<p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '1rem' }}>
-					Demo login: <code style={{ color: 'var(--color-accent)' }}>demo@zarasourcing.com</code> / <code style={{ color: 'var(--color-accent)' }}>demo123</code>
+					Sample workspace: <code style={{ color: 'var(--color-accent)' }}>demo@zarasourcing.com</code>
 				</p>
-				<DeployStatus apiBase={apiBase} />
 			</div>
 		</div>
 	);
