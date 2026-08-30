@@ -1,4 +1,5 @@
 'use client';
+import { getApiBase } from '@/lib/api';
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
@@ -24,7 +25,7 @@ export default function PublicReportPage() {
 	const [data, setData] = useState<ReportData | null>(null);
 	const [error, setError] = useState('');
 	const [selected, setSelected] = useState<ClaimAudit | null>(null);
-	const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+	const apiBase = getApiBase();
 
 	useEffect(() => {
 		fetch(`${apiBase}/api/demo/report?github=${encodeURIComponent(github)}`)

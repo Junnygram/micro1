@@ -12,7 +12,7 @@ This project has been verified and tested on the following local environment:
 * **Node.js Version:** `v18.17+` or `v20+`
 * **NPM Version:** `10.9+`
 * **Python Version:** `3.9+` (uses standard library `urllib` and `sqlite3` modules)
-* **API Access:** Gemini API Key (`gemini-1.5-pro` model)
+* **API Access:** Gemini API Key (`gemini-3.1-flash-lite` model — same as agent audit loop)
 
 ---
 
@@ -56,6 +56,14 @@ To execute the benchmark:
 ```bash
 make evaluate
 ```
+
+To verify the benchmark file without an API key (judges / CI):
+```bash
+make verify-benchmark
+# or: python3 evaluate.py --reconcile
+```
+
+> **macOS SSL:** If `make evaluate` fails with certificate errors, run `pip install certifi` and retry.
 
 > **API key:** If audits fail with HTTP 403 / "reported as leaked", create a new key at [Google AI Studio](https://aistudio.google.com/) and update `.env` plus Railway env vars before re-running.
 

@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"backend/pkg/agent"
 	"backend/pkg/awsbedrock"
+	"backend/pkg/benchmark"
 	"backend/pkg/db"
 	"backend/pkg/runner"
 	"backend/pkg/trajectory"
@@ -133,6 +135,72 @@ func (s *Server) autoSeedDatabase() {
 	}
 }
 
+func demoScoreMapping(workspaceDir string) map[string]int {
+	fallback := map[string]int{
+		"junnygram": 89, "riveradevops": 45, "emilycodes": 89, "rajconcurrency": 35,
+		"sarahml": 50, "mikecode": 79, "jesscloud": 95, "davidsecurity": 40,
+		"amaracodes": 38, "carlosfront": 90,
+	}
+	path := filepath.Join(workspaceDir, "data", "benchmark_results.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fallback
+	}
+	var bench struct {
+		Cases []struct {
+			Github string `json:"github"`
+			Score  string `json:"score"`
+		} `json:"cases"`
+	}
+	if json.Unmarshal(data, &bench) != nil {
+		return fallback
+	}
+	out := map[string]int{}
+	for _, c := range bench.Cases {
+		scoreStr := strings.TrimSuffix(strings.TrimSpace(c.Score), "%")
+		if n, err := strconv.Atoi(scoreStr); err == nil && n > 0 {
+			out[c.Github] = n
+		}
+	}
+	if len(out) == 0 {
+		return fallback
+	}
+	return out
+}
+
+// findCanonicalBenchmarkCandidate picks the best row for a seeded github profile.
+func (s *Server) findCanonicalBenchmarkCandidate(github string, mockByGithub map[string]runner.MockCandidate) (*db.Candidate, bool) {
+	if _, ok := mockByGithub[github]; !ok {
+		return nil, false
+	}
+	all, err := s.DB.ListCandidates()
+	if err != nil {
+		return nil, false
+	}
+	var best *db.Candidate
+	bestAudits := -1
+	for i := range all {
+		c := all[i]
+		if c.GithubUsername != github {
+			continue
+		}
+		audits, _ := s.DB.GetClaimsAudit(c.ID)
+		score := 0
+		if c.CompanyID == "demo_company" {
+			score += 10
+		}
+		if c.Status == "completed" {
+			score += 5
+		}
+		score += len(audits)
+		if score > bestAudits {
+			bestAudits = score
+			best = &c
+		}
+	}
+	return best, best != nil
+}
+
 func (s *Server) repairDemoCandidates() {
 	dataset, err := runner.LoadDataset(s.WorkspaceDir)
 	if err != nil {
@@ -142,35 +210,60 @@ func (s *Server) repairDemoCandidates() {
 	for _, m := range dataset {
 		mockByGithub[m.GithubUsername] = m
 	}
-	scoreMapping := map[string]int{
-		"junnygram": 92, "riveradevops": 45, "emilycodes": 88, "rajconcurrency": 35,
-		"sarahml": 50, "mikecode": 82, "jesscloud": 85, "davidsecurity": 40,
-		"amaracodes": 38, "carlosfront": 80,
+	scoreMapping := demoScoreMapping(s.WorkspaceDir)
+
+	// Attach orphaned benchmark rows to demo_company (fixes empty dashboard on deploy)
+	all, _ := s.DB.ListCandidates()
+	for i := range all {
+		c := all[i]
+		if _, ok := mockByGithub[c.GithubUsername]; !ok {
+			continue
+		}
+		if c.CompanyID != "demo_company" {
+			_ = s.DB.UpdateCandidateCompany(c.ID, "demo_company")
+		}
 	}
 
 	candidates, err := s.DB.ListCandidatesByCompany("demo_company", "")
 	if err != nil {
 		return
 	}
+	_ = candidates // ensure company query works; repair runs per github below
+
 	repaired := 0
-	for _, cand := range candidates {
-		mock, ok := mockByGithub[cand.GithubUsername]
-		if !ok {
+	for github, mock := range mockByGithub {
+		canonical, found := s.findCanonicalBenchmarkCandidate(github, mockByGithub)
+		if !found {
 			continue
 		}
-		audits, _ := s.DB.GetClaimsAudit(cand.ID)
-		if len(audits) > 0 && cand.Status == "completed" {
+		_ = s.DB.UpdateCandidateCompany(canonical.ID, "demo_company")
+
+		// Hide duplicate rows for the same seeded github (e.g. test applies on deploy).
+		allRows, _ := s.DB.ListCandidates()
+		for i := range allRows {
+			row := allRows[i]
+			if row.GithubUsername != github || row.ID == canonical.ID {
+				continue
+			}
+			if row.CompanyID == "demo_company" {
+				_ = s.DB.UpdateCandidateCompany(row.ID, "archived_applicant")
+			}
+		}
+
+		audits, _ := s.DB.GetClaimsAudit(canonical.ID)
+		expectedScore := scoreMapping[github]
+		if expectedScore == 0 {
+			expectedScore = 75
+		}
+		needsRepair := len(audits) == 0 || canonical.Status != "completed" || canonical.SourcingScore != expectedScore
+		if !needsRepair {
 			continue
 		}
-		_ = s.DB.ClearClaimsAudit(cand.ID)
-		_ = s.DB.ClearProctoringEvents(cand.ID)
-		_ = s.DB.ClearSessionSteps(cand.ID)
-		s.seedCandidateDemoData(cand.ID, mock)
-		score := scoreMapping[cand.GithubUsername]
-		if score == 0 {
-			score = 75
-		}
-		_ = s.DB.UpdateCandidateScore(cand.ID, score, "completed")
+		_ = s.DB.ClearClaimsAudit(canonical.ID)
+		_ = s.DB.ClearProctoringEvents(canonical.ID)
+		_ = s.DB.ClearSessionSteps(canonical.ID)
+		s.seedCandidateDemoData(canonical.ID, mock)
+		_ = s.DB.UpdateCandidateScore(canonical.ID, expectedScore, "completed")
 		repaired++
 	}
 	if repaired > 0 {
@@ -246,6 +339,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/demo/candidate", s.handleDemoCandidate)
 	mux.HandleFunc("/api/demo/report", s.handleDemoReport)
 	mux.HandleFunc("/api/demo/preview", s.handleDemoPreview)
+	mux.HandleFunc("/api/demo/status", s.handleDemoStatus)
+	mux.HandleFunc("/api/demo/apply-samples", s.handleDemoApplySamples)
+	mux.HandleFunc("/api/demo/resume", s.handleDemoResume)
+	mux.HandleFunc("/api/recruiter/chat", s.handleRecruiterChat)
+	mux.HandleFunc("/api/recruiter/compare", s.handleRecruiterCompare)
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/trajectory/", s.handleTrajectory)
 
@@ -1266,20 +1364,105 @@ func (s *Server) handleAdminCompanies(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(companies)
 }
 
-// handleBenchmark serves canonical benchmark results for the /benchmark UI.
+// handleBenchmark computes live benchmark metrics from dataset + DB audits.
 func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	path := filepath.Join(s.WorkspaceDir, "data", "benchmark_results.json")
-	data, err := os.ReadFile(path)
+	result, err := benchmark.Compute(s.WorkspaceDir, s.DB)
 	if err != nil {
-		http.Error(w, "Benchmark results not found", http.StatusNotFound)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(data)
+	_ = json.NewEncoder(w).Encode(result)
+}
+
+// handleDemoApplySamples lists benchmark profiles for one-click apply demos.
+func (s *Server) handleDemoApplySamples(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	dataset, err := runner.LoadDataset(s.WorkspaceDir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	type sample struct {
+		Name          string `json:"name"`
+		Email         string `json:"email"`
+		Github        string `json:"github_username"`
+		Role          string `json:"role"`
+		Target        string `json:"target"`
+		Tag           string `json:"tag"`
+		ResumePreview string `json:"resume_preview"`
+		ResumeURL     string `json:"resume_url"`
+	}
+	tagFor := func(target string) string {
+		switch target {
+		case "exaggerated":
+			return "Fraud case"
+		case "failed":
+			return "Failed claims"
+		default:
+			return "Strong match"
+		}
+	}
+	var samples []sample
+	for _, m := range dataset {
+		target := "verified"
+		for _, a := range m.ExpectedAudit {
+			if a.Verdict == "exaggerated" || a.Verdict == "failed" {
+				target = a.Verdict
+				break
+			}
+		}
+		preview := m.Resume
+		if len(preview) > 120 {
+			preview = preview[:117] + "..."
+		}
+		samples = append(samples, sample{
+			Name:          m.Name,
+			Email:         m.Email,
+			Github:        m.GithubUsername,
+			Role:          m.Role,
+			Target:        target,
+			Tag:           tagFor(target),
+			ResumePreview: preview,
+			ResumeURL:     fmt.Sprintf("/api/demo/resume?github=%s", m.GithubUsername),
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"samples": samples,
+		"total":   len(samples),
+	})
+}
+
+// handleDemoResume serves a downloadable resume for a benchmark profile.
+func (s *Server) handleDemoResume(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	github := strings.TrimSpace(r.URL.Query().Get("github"))
+	if github == "" {
+		http.Error(w, "github query required", http.StatusBadRequest)
+		return
+	}
+	mock, err := runner.GetCandidateByGithub(s.WorkspaceDir, github)
+	if err != nil {
+		http.Error(w, "profile not found", http.StatusNotFound)
+		return
+	}
+	body := fmt.Sprintf("Candidate: %s\nRole: %s\nEmail: %s\nGitHub: @%s\n\n%s",
+		mock.Name, mock.Role, mock.Email, mock.GithubUsername, mock.Resume)
+	filename := fmt.Sprintf("%s_resume.txt", github)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.Write([]byte(body))
 }
 
 // handleDemoCandidate resolves a seeded candidate by GitHub username for judge demo deep-links.
@@ -1293,35 +1476,30 @@ func (s *Server) handleDemoCandidate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "github query required", http.StatusBadRequest)
 		return
 	}
-	candidates, err := s.DB.ListCandidates()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	dataset, _ := runner.LoadDataset(s.WorkspaceDir)
+	mockByGithub := make(map[string]runner.MockCandidate)
+	for _, m := range dataset {
+		mockByGithub[m.GithubUsername] = m
+	}
+	cand, found := s.findCanonicalBenchmarkCandidate(github, mockByGithub)
+	if !found {
+		http.Error(w, "candidate not found", http.StatusNotFound)
 		return
 	}
-	for _, c := range candidates {
-		if c.GithubUsername == github {
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"id":              c.ID,
-				"name":            c.Name,
-				"github_username": c.GithubUsername,
-				"status":          c.Status,
-				"sourcing_score":  c.SourcingScore,
-			})
-			return
-		}
-	}
-	http.Error(w, "candidate not found", http.StatusNotFound)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":              cand.ID,
+		"name":            cand.Name,
+		"github_username": cand.GithubUsername,
+		"status":          cand.Status,
+		"sourcing_score":  cand.SourcingScore,
+	})
 }
 
-func demoScoreForGithub(github string) int {
-	scores := map[string]int{
-		"junnygram": 92, "riveradevops": 45, "emilycodes": 88, "rajconcurrency": 35,
-		"sarahml": 50, "mikecode": 82, "jesscloud": 85, "davidsecurity": 40,
-		"amaracodes": 38, "carlosfront": 80,
-	}
-	if s, ok := scores[github]; ok {
-		return s
+func (s *Server) demoScoreForGithub(github string) int {
+	scores := demoScoreMapping(s.WorkspaceDir)
+	if score, ok := scores[github]; ok {
+		return score
 	}
 	return 75
 }
@@ -1332,8 +1510,55 @@ func (s *Server) seedKnownBenchmarkCandidate(candidateID, github string) bool {
 		return false
 	}
 	s.seedCandidateDemoData(candidateID, *mock)
-	_ = s.DB.UpdateCandidateScore(candidateID, demoScoreForGithub(github), "completed")
+	_ = s.DB.UpdateCandidateScore(candidateID, s.demoScoreForGithub(github), "completed")
 	return true
+}
+
+// handleDemoStatus — pre-submit smoke test for judges and deploy verification.
+func (s *Server) handleDemoStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	dataset, _ := runner.LoadDataset(s.WorkspaceDir)
+	mockByGithub := make(map[string]runner.MockCandidate)
+	for _, m := range dataset {
+		mockByGithub[m.GithubUsername] = m
+	}
+	demoCount, _ := s.DB.ListCandidatesByCompany("demo_company", "")
+	alex, hasAlex := s.findCanonicalBenchmarkCandidate("riveradevops", mockByGithub)
+	alexAudits := 0
+	alexScore := 0
+	if hasAlex {
+		a, _ := s.DB.GetClaimsAudit(alex.ID)
+		alexAudits = len(a)
+		alexScore = alex.SourcingScore
+	}
+	stats, _ := s.DB.GetCompanyAnalytics("demo_company")
+	benchPayload := map[string]interface{}{}
+	if result, err := benchmark.Load(s.WorkspaceDir, s.DB); err == nil {
+		benchPayload = map[string]interface{}{
+			"baseline_pct":     result.BaselineAccuracyPct,
+			"agent_pct":          result.AgentAccuracyPct,
+			"source":             result.Source,
+			"evaluated_at":       result.EvaluatedAt,
+			"fraud_agent_caught": result.AgentFraudCaught,
+			"fraud_total":        result.FraudCasesTotal,
+		}
+	}
+	ready := len(demoCount) >= 10 && hasAlex && alexScore == 45 && alexAudits >= 1
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":             "ok",
+		"ready_for_demo":     ready,
+		"demo_candidates":    len(demoCount),
+		"alex_found":         hasAlex,
+		"alex_score":         alexScore,
+		"alex_audits":        alexAudits,
+		"analytics":          stats,
+		"benchmark_profiles": len(mockByGithub),
+		"benchmark":          benchPayload,
+	})
 }
 
 // handleDemoReport returns public read-only audit data for seeded benchmark candidates.
@@ -1347,19 +1572,13 @@ func (s *Server) handleDemoReport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "github query required", http.StatusBadRequest)
 		return
 	}
-	candidates, err := s.DB.ListCandidates()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	dataset, _ := runner.LoadDataset(s.WorkspaceDir)
+	mockByGithub := make(map[string]runner.MockCandidate)
+	for _, m := range dataset {
+		mockByGithub[m.GithubUsername] = m
 	}
-	var cand *db.Candidate
-	for i := range candidates {
-		if candidates[i].GithubUsername == github {
-			cand = &candidates[i]
-			break
-		}
-	}
-	if cand == nil {
+	cand, found := s.findCanonicalBenchmarkCandidate(github, mockByGithub)
+	if !found {
 		http.Error(w, "candidate not found", http.StatusNotFound)
 		return
 	}
@@ -1482,7 +1701,7 @@ JSON: {"score": <0-100>, "fit_summary": "...", "strengths": "...", "gaps": "..."
 			},
 		})
 		resp, err := http.Post(
-			fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=%s", geminiKey),
+			fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=%s", geminiKey),
 			"application/json", strings.NewReader(string(body)),
 		)
 		if err == nil {

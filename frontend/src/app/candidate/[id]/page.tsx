@@ -1,4 +1,5 @@
 'use client';
+import { getApiBase } from '@/lib/api';
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
@@ -40,7 +41,7 @@ interface ProctoringEvent {
 	id: number;
 	candidate_id: string;
 	timestamp: string;
-	event_type: 'look_away' | 'tab_switch' | 'voice_detected';
+	event_type: 'look_away' | 'tab_switch' | 'voice_detected' | 'multiple_faces' | 'phone_detected';
 	duration: number;
 	details: string;
 	created_at: string;
@@ -54,6 +55,15 @@ interface InterviewQuestion {
 
 export default function CandidateDetail({ params }: { params: { id: string } }) {
 	const router = useRouter();
+	const proctorColor = (t: string) => {
+		switch (t) {
+			case 'look_away': return '#f43f5e';
+			case 'tab_switch': return '#f59e0b';
+			case 'multiple_faces': return '#a855f7';
+			case 'phone_detected': return '#fb923c';
+			default: return '#3b82f6';
+		}
+	};
 	const [companyID, setCompanyID] = useState<string | null>(null);
 	const [candidate, setCandidate] = useState<Candidate | null>(null);
 	const [steps, setSteps] = useState<Step[]>([]);
@@ -104,7 +114,7 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 	const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 	const recordedChunksRef = useRef<Blob[]>([]);
 
-	const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+	const apiBase = getApiBase();
 
 	// Hardcoded screening questions based on resume profiles
 	const interviewQuestions: InterviewQuestion[] = [
@@ -1165,7 +1175,7 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 								<div style={{
 									height: '240px',
 									background: '#09070a',
-									border: `2px solid ${selectedProctorEvent?.event_type === 'look_away' ? '#f43f5e' : selectedProctorEvent?.event_type === 'tab_switch' ? '#f59e0b' : '#3b82f6'}`,
+									border: `2px solid ${proctorColor(selectedProctorEvent?.event_type || '')}`,
 									borderRadius: '0.75rem',
 									position: 'relative',
 									display: 'flex',
@@ -1253,7 +1263,7 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 														width: isSelected ? '18px' : '12px',
 														height: isSelected ? '18px' : '12px',
 														borderRadius: '50%',
-														background: p.event_type === 'look_away' ? '#f43f5e' : p.event_type === 'tab_switch' ? '#f59e0b' : '#3b82f6',
+														background: proctorColor(p.event_type),
 														border: '2px solid #ffffff',
 														cursor: 'pointer',
 														transition: 'all 0.2s',

@@ -27,6 +27,11 @@ test-backend:
 evaluate:
 	python3 evaluate.py
 
+verify-benchmark:
+	cd backend && go test -v ./pkg/benchmark/...
+	python3 evaluate.py --reconcile
+	@echo "Benchmark file matches internal consistency checks."
+
 dev-backend:
 	cd backend && WORKSPACE_DIR=. ./backend_binary
 

@@ -1,59 +1,112 @@
 'use client';
+import { getApiBase } from '@/lib/api';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
+function DeployStatus({ apiBase }: { apiBase: string }) {
+	const [status, setStatus] = useState<{
+		demo_candidates?: number;
+		alex_score?: number;
+		alex_audits?: number;
+		ready_for_demo?: boolean;
+		benchmark?: { baseline_pct?: number; agent_pct?: number; fraud_agent_caught?: number; fraud_total?: number };
+	} | null>(null);
+	const [err, setErr] = useState('');
+
+	useEffect(() => {
+		fetch(`${apiBase}/api/demo/status`)
+			.then(r => (r.ok ? r.json() : Promise.reject(new Error('Backend unreachable'))))
+			.then(setStatus)
+			.catch(e => setErr((e as Error).message));
+	}, [apiBase]);
+
+	if (err) {
+		return (
+			<p style={{ fontSize: '0.75rem', color: '#f59e0b', marginTop: '0.75rem' }}>
+				⚠ Deploy check: backend not reachable — redeploy backend + frontend with latest code.
+			</p>
+		);
+	}
+	if (!status) return null;
+	const ok = status.ready_for_demo === true || ((status.demo_candidates ?? 0) >= 10 && status.alex_score === 45 && (status.alex_audits ?? 0) >= 1);
+	const b = status.benchmark;
+	return (
+		<div style={{ fontSize: '0.75rem', marginTop: '0.75rem', lineHeight: 1.5 }}>
+			<p style={{ color: ok ? '#10b981' : '#f59e0b', margin: 0 }}>
+				{ok ? '✓' : '⚠'} Deploy: {status.demo_candidates ?? 0} candidates · Alex {status.alex_score ?? '—'}% (want 45) · {status.alex_audits ?? 0} audit(s)
+				{!ok && ' — redeploy backend with SQLite volume on data/'}
+			</p>
+			{b?.agent_pct != null && (
+				<p style={{ color: 'var(--text-muted)', margin: '0.35rem 0 0' }}>
+					Benchmark file: {b.baseline_pct}% baseline → {b.agent_pct}% agent · fraud {b.fraud_agent_caught}/{b.fraud_total}
+				</p>
+			)}
+		</div>
+	);
+}
+
+/** Matches WALKTHROUGH.md — same order as the Loom script */
 const STEPS = [
 	{
 		num: 1,
-		title: 'See the benchmark proof',
-		desc: '60% baseline → 70% agent. Fraud cases 0/4 → 4/4. Numbers judges can verify.',
-		cta: 'Open benchmark',
-		href: '/benchmark',
-		external: false,
+		title: 'The problem: Zara vs resume fraud',
+		desc: 'micro1\'s Zara agent runs AI voice interviews — but cannot verify GitHub claims. ZaraSourcing adds code-grounded audit with cited evidence. Agent recommends; recruiter decides.',
+		cta: 'Read full script',
+		href: 'https://github.com/Junnygram/micro1/blob/main/WALKTHROUGH.md',
+		external: true,
 	},
 	{
 		num: 2,
-		title: 'Sign in to the demo company',
-		desc: 'One-click login loads 10 seeded candidates with completed GitHub audits and interview data.',
-		cta: 'Demo login',
-		href: '/company/login',
-		external: false,
-		demoLogin: true,
+		title: 'Benchmark proof (make evaluate)',
+		desc: '60% baseline (text-only) → 70% agent (GitHub tools). Discrepancy cases: baseline 1/5, agent 5/5. Numbers from benchmark_results.json — reproducible via make evaluate.',
+		cta: 'Open benchmark',
+		href: '/benchmark',
+		noKeys: true,
 	},
 	{
 		num: 3,
-		title: 'Catch resume fraud (Alex Rivera)',
-		desc: 'Public fraud report — no login wall. Agent flagged exaggerated DevOps claims with repo evidence.',
+		title: 'Public fraud report — Alex Rivera',
+		desc: 'No login. DevOps claims vs empty repos — exaggerated with evidence. Baseline would have passed; agent caught it.',
 		cta: 'View fraud report',
 		href: '/report/riveradevops',
-		external: false,
 		highlight: true,
+		noKeys: true,
 	},
 	{
 		num: 4,
-		title: 'Explore the hiring dashboard',
-		desc: 'Pipeline stats, composite scores, interview rankings, and per-applicant audit links.',
-		cta: 'Open dashboard',
-		href: '/company/dashboard',
-		external: false,
+		title: 'Company dashboard',
+		desc: 'Jobs, applicants, composite scores, Recruiter AI chat, candidate compare. 10 seeded candidates — Alex at 45%.',
+		cta: 'Demo login',
+		href: '/company/login',
+		demoLogin: true,
+		noKeys: true,
 	},
 	{
 		num: 5,
-		title: 'Try the hands-free voice interview',
-		desc: 'Apply as a candidate → get a private interview link. AI asks questions, listens, auto-advances on silence.',
-		cta: 'Apply for DevOps role',
-		href: '/apply/devops_job',
-		external: false,
+		title: 'Audit workspace + replay',
+		desc: 'From dashboard → Alex Rivera. Claims, evidence, agent trajectory replay. Do not re-run live audit on demo rows.',
+		cta: 'Open dashboard first',
+		href: '/company/dashboard',
+		demoLogin: true,
+		noKeys: true,
 	},
 	{
 		num: 6,
-		title: 'Apply a benchmark profile (instant audit)',
-		desc: 'Apply with GitHub @riveradevops or @junnygram — audit data seeds automatically on submit.',
-		cta: 'Apply now',
+		title: 'Apply flow + demo CVs',
+		desc: 'Ten one-click demo profiles. Resumes to S3/local storage. Known GitHub handles seed instant audit data.',
+		cta: 'Apply (DevOps role)',
 		href: '/apply/devops_job',
-		external: false,
+		noKeys: true,
+	},
+	{
+		num: 7,
+		title: 'Reproduce locally',
+		desc: 'make verify-benchmark (no key) · make evaluate (Gemini key, ~2–5 min) · trajectories in backend/data/trajectories/',
+		cta: 'Reproduction guide',
+		href: 'https://github.com/Junnygram/micro1/blob/main/REPRODUCTION.md',
+		external: true,
 	},
 ];
 
@@ -61,7 +114,7 @@ export default function DemoGuidePage() {
 	const [active, setActive] = useState(0);
 	const [loggingIn, setLoggingIn] = useState(false);
 	const router = useRouter();
-	const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+	const apiBase = getApiBase();
 
 	const demoLogin = async () => {
 		setLoggingIn(true);
@@ -91,11 +144,19 @@ export default function DemoGuidePage() {
 					<Link href="/" style={{ textDecoration: 'none' }}><div className="logo-icon">ZS</div></Link>
 					<div>
 						<h1 style={{ fontSize: '1.5rem' }}>Demo Walkthrough</h1>
-						<p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>60-second judge path · {STEPS.length} steps</p>
+						<p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Same flow as WALKTHROUGH.md · {STEPS.length} steps</p>
 					</div>
 				</div>
 				<Link href="/" className="btn btn-secondary" style={{ fontSize: '0.8rem' }}>← Home</Link>
 			</header>
+
+			<div className="panel" style={{ padding: '1.25rem', marginBottom: '1.25rem', border: '1px solid rgba(168,85,247,0.25)', background: 'rgba(168,85,247,0.06)' }}>
+				<p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
+					<strong style={{ color: '#e9d5ff' }}>Recording Loom?</strong> Follow{' '}
+					<a href="https://github.com/Junnygram/micro1/blob/main/WALKTHROUGH.md" target="_blank" rel="noreferrer" style={{ color: 'var(--color-accent)' }}>WALKTHROUGH.md</a>
+					{' '}on Railway — Zara story → short UI → benchmark → <code>make evaluate</code>.
+				</p>
+			</div>
 
 			<div style={{ display: 'flex', gap: '0.35rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
 				{STEPS.map((s, i) => (
@@ -103,8 +164,8 @@ export default function DemoGuidePage() {
 						key={s.num}
 						onClick={() => setActive(i)}
 						style={{
-							width: '36px', height: '36px', borderRadius: '50%', border: 'none', cursor: 'pointer',
-							fontWeight: 800, fontSize: '0.85rem',
+							width: '32px', height: '32px', borderRadius: '50%', border: 'none', cursor: 'pointer',
+							fontWeight: 800, fontSize: '0.75rem',
 							background: i === active ? 'var(--color-accent)' : 'rgba(255,255,255,0.05)',
 							color: i === active ? '#fff' : 'var(--text-muted)',
 						}}
@@ -118,13 +179,20 @@ export default function DemoGuidePage() {
 				<p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-accent)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>
 					Step {step.num} of {STEPS.length}
 				</p>
-				<h2 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: '0.75rem' }}>{step.title}</h2>
-				<p style={{ color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '1.5rem' }}>{step.desc}</p>
+				<h2 style={{ fontSize: '1.35rem', fontWeight: 800, marginBottom: '0.75rem' }}>{step.title}</h2>
+				<p style={{ color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '1rem' }}>{step.desc}</p>
+				{step.noKeys && (
+					<span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: '0.25rem', background: 'rgba(16,185,129,0.12)', color: '#10b981', fontWeight: 700, display: 'inline-block', marginBottom: '1rem' }}>
+						✓ No API keys for this step
+					</span>
+				)}
 				<div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
 					{step.demoLogin ? (
 						<button className="btn btn-primary" onClick={demoLogin} disabled={loggingIn}>
 							{loggingIn ? 'Signing in…' : '⚡ One-click demo login'}
 						</button>
+					) : step.external ? (
+						<a href={step.href} className="btn btn-primary" target="_blank" rel="noreferrer">{step.cta} →</a>
 					) : (
 						<Link href={step.href} className="btn btn-primary">{step.cta} →</Link>
 					)}
@@ -138,11 +206,12 @@ export default function DemoGuidePage() {
 				<p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.75rem' }}>Quick links</p>
 				<div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
 					{[
+						{ label: 'Video script', href: 'https://github.com/Junnygram/micro1/blob/main/WALKTHROUGH.md' },
 						{ label: 'Benchmark', href: '/benchmark' },
 						{ label: 'Fraud report', href: '/report/riveradevops' },
 						{ label: 'Dashboard', href: '/company/dashboard' },
 						{ label: 'Apply', href: '/apply/devops_job' },
-						{ label: 'Reproduce', href: 'https://github.com/Junnygram/micro1/blob/main/REPRODUCTION.md' },
+						{ label: 'Pre-submit', href: 'https://github.com/Junnygram/micro1/blob/main/PRE_SUBMIT.md' },
 					].map(l => (
 						<Link key={l.label} href={l.href} className="btn btn-secondary" style={{ fontSize: '0.75rem' }} target={l.href.startsWith('http') ? '_blank' : undefined}>
 							{l.label}
@@ -150,8 +219,9 @@ export default function DemoGuidePage() {
 					))}
 				</div>
 				<p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '1rem' }}>
-					Demo credentials: <code style={{ color: 'var(--color-accent)' }}>demo@zarasourcing.com</code> / <code style={{ color: 'var(--color-accent)' }}>demo123</code>
+					Demo login: <code style={{ color: 'var(--color-accent)' }}>demo@zarasourcing.com</code> / <code style={{ color: 'var(--color-accent)' }}>demo123</code>
 				</p>
+				<DeployStatus apiBase={apiBase} />
 			</div>
 		</div>
 	);

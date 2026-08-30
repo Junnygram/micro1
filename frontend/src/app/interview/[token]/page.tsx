@@ -1,4 +1,5 @@
 'use client';
+import { getApiBase } from '@/lib/api';
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 
@@ -23,10 +24,13 @@ export default function InterviewPage() {
 	const [errorMsg, setErrorMsg] = useState('');
 	const [finalScore, setFinalScore] = useState(0);
 	const [fitSummary, setFitSummary] = useState('');
-	const [faceStatus, setFaceStatus] = useState<'no_face' | 'locked' | 'deviation'>('no_face');
+	const [faceStatus, setFaceStatus] = useState<'no_face' | 'locked' | 'deviation' | 'multiple_faces' | 'phone_detected'>('no_face');
 	const [tabSwitchCount, setTabSwitchCount] = useState(0);
+	const [arAlerts, setArAlerts] = useState({ multipleFaces: 0, phone: 0 });
 	const lookAwayStartRef = useRef<number | null>(null);
 	const lastProctorPostRef = useRef<number>(0);
+	const lastMultiFacePostRef = useRef<number>(0);
+	const lastPhonePostRef = useRef<number>(0);
 
 	// Webcam + AR
 	const videoRef = useRef<HTMLVideoElement>(null);
@@ -61,7 +65,7 @@ export default function InterviewPage() {
 	const SILENCE_AUTO_ADVANCE_MS = 10000;
 	const MAX_ANSWER_MS = 120000;
 
-	const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+	const apiBase = getApiBase();
 
 	const clearListenTimers = () => {
 		if (listenTimerRef.current) clearTimeout(listenTimerRef.current);
@@ -316,7 +320,8 @@ export default function InterviewPage() {
 	const postProctorEvent = async (eventType: string, duration: number, details: string) => {
 		if (!candidate) return;
 		const now = Date.now();
-		if (now - lastProctorPostRef.current < 3000) return;
+		const throttleMs = eventType === 'multiple_faces' || eventType === 'phone_detected' ? 8000 : 3000;
+		if (now - lastProctorPostRef.current < throttleMs) return;
 		lastProctorPostRef.current = now;
 		const mins = Math.floor((Date.now() - (session?.created_at ? new Date(session.created_at).getTime() : Date.now())) / 60000);
 		const secs = Math.floor(((Date.now() - (session?.created_at ? new Date(session.created_at).getTime() : Date.now())) % 60000) / 1000);
@@ -382,21 +387,26 @@ export default function InterviewPage() {
 		startAnswerListening('intro');
 	};
 
+	const speakBrowser = (text: string, onDone: () => void) => {
+		if (window.speechSynthesis) {
+			window.speechSynthesis.cancel();
+			const utt = new SpeechSynthesisUtterance(text);
+			utt.onend = onDone;
+			utt.onerror = onDone;
+			window.speechSynthesis.speak(utt);
+		} else {
+			onDone();
+		}
+	};
+
 	const speak = async (text: string, onDone: () => void) => {
 		try {
 			const audio = new Audio(`${apiBase}/api/speak?text=${encodeURIComponent(text)}`);
 			audio.onended = onDone;
-			audio.onerror = onDone;
+			audio.onerror = () => speakBrowser(text, onDone);
 			await audio.play();
 		} catch {
-			if (window.speechSynthesis) {
-				window.speechSynthesis.cancel();
-				const utt = new SpeechSynthesisUtterance(text);
-				utt.onend = onDone;
-				window.speechSynthesis.speak(utt);
-			} else {
-				onDone();
-			}
+			speakBrowser(text, onDone);
 		}
 	};
 
@@ -424,7 +434,7 @@ export default function InterviewPage() {
 				const landmarker = await vision.FaceLandmarker.createFromOptions(filesetResolver, {
 					baseOptions: { modelAssetPath: modelPath, delegate: 'GPU' },
 					runningMode: 'VIDEO',
-					numFaces: 1,
+					numFaces: 3,
 					outputFaceBlendshapes: false,
 				});
 				faceLandmarkerRef.current = landmarker;
@@ -435,6 +445,29 @@ export default function InterviewPage() {
 		} catch {
 			setCameraReady(false);
 		}
+	};
+
+	const detectPhoneNearFace = (ctx: CanvasRenderingContext2D, w: number, h: number, bx: number, by: number, bw: number, bh: number) => {
+		const zones = [
+			{ x: Math.min(Math.max(0, bx + bw - 20), w - 90), y: Math.min(Math.max(0, by + bh * 0.35), h - 130), width: 80, height: 120 },
+			{ x: Math.max(0, bx - 70), y: Math.min(Math.max(0, by + bh * 0.4), h - 110), width: 65, height: 100 },
+		];
+		for (const z of zones) {
+			if (z.x + z.width > w || z.y + z.height > h) continue;
+			const img = ctx.getImageData(z.x, z.y, z.width, z.height);
+			let sum = 0;
+			let sumSq = 0;
+			const n = img.data.length / 4;
+			for (let i = 0; i < img.data.length; i += 4) {
+				const lum = 0.299 * img.data[i] + 0.587 * img.data[i + 1] + 0.114 * img.data[i + 2];
+				sum += lum;
+				sumSq += lum * lum;
+			}
+			const mean = sum / n;
+			const variance = sumSq / n - mean * mean;
+			if (mean > 70 && mean < 230 && variance < 900) return true;
+		}
+		return false;
 	};
 
 	const runARLoop = () => {
@@ -451,6 +484,17 @@ export default function InterviewPage() {
 					canvas.height = video.videoHeight;
 					ctx.clearRect(0, 0, canvas.width, canvas.height);
 					if (results.faceLandmarks?.length > 0) {
+						const faceCount = results.faceLandmarks.length;
+						if (faceCount > 1) {
+							setFaceStatus('multiple_faces');
+							const now = Date.now();
+							if (now - lastMultiFacePostRef.current > 8000) {
+								lastMultiFacePostRef.current = now;
+								setArAlerts(a => ({ ...a, multipleFaces: a.multipleFaces + 1 }));
+								postProctorEvent('multiple_faces', 0, `${faceCount} faces detected in frame — possible coaching or shared screen`);
+							}
+						}
+
 						const lms = results.faceLandmarks[0];
 						const w = canvas.width;
 						const h = canvas.height;
@@ -461,9 +505,8 @@ export default function InterviewPage() {
 						const rightCheek = lms[454];
 						const faceCenterX = (leftCheek.x + rightCheek.x) / 2;
 						const gazeOffset = Math.abs(nose.x - faceCenterX);
-						const isLocked = gazeOffset < 0.04;
-						const status = isLocked ? 'locked' : 'deviation';
-						setFaceStatus(status);
+						const isLocked = gazeOffset < 0.04 && faceCount === 1;
+						if (faceCount === 1) setFaceStatus(isLocked ? 'locked' : 'deviation');
 
 						if (!isLocked) {
 							if (!lookAwayStartRef.current) lookAwayStartRef.current = Date.now();
@@ -498,7 +541,22 @@ export default function InterviewPage() {
 						ctx.fillRect(bx, by - 22, 110, 18);
 						ctx.fillStyle = '#fff';
 						ctx.font = 'bold 10px monospace';
-						ctx.fillText(isLocked ? 'LOCKED ON' : 'GAZE DEVIATION', bx + 4, by - 9);
+						ctx.fillText(isLocked ? 'LOCKED ON' : faceCount > 1 ? 'MULTIPLE FACES' : 'GAZE DEVIATION', bx + 4, by - 9);
+
+						if (faceCount === 1 && detectPhoneNearFace(ctx, w, h, bx, by, bw, bh)) {
+							setFaceStatus('phone_detected');
+							const now = Date.now();
+							if (now - lastPhonePostRef.current > 8000) {
+								lastPhonePostRef.current = now;
+								setArAlerts(a => ({ ...a, phone: a.phone + 1 }));
+								postProctorEvent('phone_detected', 0, 'Rectangular high-contrast object detected near face — possible mobile device');
+							}
+							ctx.fillStyle = 'rgba(245,158,11,0.9)';
+							ctx.fillRect(bx, by + bh + 4, 140, 18);
+							ctx.fillStyle = '#fff';
+							ctx.font = 'bold 10px monospace';
+							ctx.fillText('PHONE DETECTED', bx + 4, by + bh + 16);
+						}
 					} else {
 						setFaceStatus('no_face');
 					}
@@ -699,7 +757,7 @@ export default function InterviewPage() {
 
 			{/* Right — webcam + AR */}
 			<div style={{ background: '#09070a', borderLeft: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', padding: '1.5rem', gap: '1rem' }}>
-				<div style={{ position: 'relative', borderRadius: '0.75rem', overflow: 'hidden', background: '#000', aspectRatio: '4/3', border: `2px solid ${faceStatus === 'locked' ? '#10b981' : faceStatus === 'deviation' ? '#ef4444' : 'var(--border-color)'}`, transition: 'border-color 0.3s' }}>
+				<div style={{ position: 'relative', borderRadius: '0.75rem', overflow: 'hidden', background: '#000', aspectRatio: '4/3', border: `2px solid ${faceStatus === 'locked' ? '#10b981' : faceStatus === 'deviation' ? '#ef4444' : faceStatus === 'multiple_faces' ? '#a855f7' : faceStatus === 'phone_detected' ? '#f59e0b' : 'var(--border-color)'}`, transition: 'border-color 0.3s' }}>
 					<video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
 					<canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', transform: 'scaleX(-1)' }} />
 					<div style={{ position: 'absolute', top: '8px', left: '10px', display: 'flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(0,0,0,0.7)', padding: '0.2rem 0.5rem', borderRadius: '0.25rem' }}>
@@ -710,8 +768,8 @@ export default function InterviewPage() {
 							</>
 						)}
 					</div>
-					<div style={{ position: 'absolute', bottom: '8px', left: '50%', transform: 'translateX(-50%)', background: faceStatus === 'locked' ? 'rgba(16,185,129,0.85)' : faceStatus === 'deviation' ? 'rgba(239,68,68,0.85)' : 'rgba(100,116,139,0.85)', padding: '0.2rem 0.65rem', borderRadius: '0.25rem', fontSize: '0.65rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#fff' }}>
-						{faceStatus === 'locked' ? 'LOCKED ON' : faceStatus === 'deviation' ? 'GAZE DEVIATION' : 'ALIGN FACE'}
+					<div style={{ position: 'absolute', bottom: '8px', left: '50%', transform: 'translateX(-50%)', background: faceStatus === 'locked' ? 'rgba(16,185,129,0.85)' : faceStatus === 'deviation' ? 'rgba(239,68,68,0.85)' : faceStatus === 'multiple_faces' ? 'rgba(168,85,247,0.9)' : faceStatus === 'phone_detected' ? 'rgba(245,158,11,0.9)' : 'rgba(100,116,139,0.85)', padding: '0.2rem 0.65rem', borderRadius: '0.25rem', fontSize: '0.65rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#fff' }}>
+						{faceStatus === 'locked' ? 'LOCKED ON' : faceStatus === 'deviation' ? 'GAZE DEVIATION' : faceStatus === 'multiple_faces' ? 'MULTIPLE FACES' : faceStatus === 'phone_detected' ? 'PHONE DETECTED' : 'ALIGN FACE'}
 					</div>
 				</div>
 
@@ -728,10 +786,20 @@ export default function InterviewPage() {
 						</div>
 						<div style={{ display: 'flex', justifyContent: 'space-between' }}>
 							<span style={{ color: 'var(--text-secondary)' }}>Face Tracking</span>
-							<span style={{ color: faceStatus === 'locked' ? '#10b981' : faceStatus === 'deviation' ? '#ef4444' : 'var(--text-muted)' }}>
-								{faceStatus === 'locked' ? '● Locked' : faceStatus === 'deviation' ? '● Deviation' : '○ Waiting'}
+							<span style={{ color: faceStatus === 'locked' ? '#10b981' : faceStatus === 'deviation' ? '#ef4444' : faceStatus === 'multiple_faces' ? '#a855f7' : faceStatus === 'phone_detected' ? '#f59e0b' : 'var(--text-muted)' }}>
+								{faceStatus === 'locked' ? '● Locked' : faceStatus === 'deviation' ? '● Deviation' : faceStatus === 'multiple_faces' ? '● Multi-face' : faceStatus === 'phone_detected' ? '● Phone' : '○ Waiting'}
 							</span>
 						</div>
+						{(arAlerts.multipleFaces > 0 || arAlerts.phone > 0) && (
+							<div style={{ display: 'flex', justifyContent: 'space-between' }}>
+								<span style={{ color: 'var(--text-secondary)' }}>AR alerts</span>
+								<span style={{ color: '#f59e0b', fontSize: '0.75rem' }}>
+									{arAlerts.multipleFaces > 0 && `${arAlerts.multipleFaces} multi-face`}
+									{arAlerts.multipleFaces > 0 && arAlerts.phone > 0 && ' · '}
+									{arAlerts.phone > 0 && `${arAlerts.phone} phone`}
+								</span>
+							</div>
+						)}
 						<div style={{ display: 'flex', justifyContent: 'space-between' }}>
 							<span style={{ color: 'var(--text-secondary)' }}>Tab switches</span>
 							<span style={{ color: tabSwitchCount > 0 ? '#ef4444' : 'var(--text-muted)' }}>{tabSwitchCount}</span>
@@ -741,7 +809,7 @@ export default function InterviewPage() {
 
 				<div style={{ padding: '0.75rem 1rem', background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.15)', borderRadius: '0.5rem' }}>
 					<p style={{ fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600, margin: 0 }}>⚠ Proctored Session</p>
-					<p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0.25rem 0 0 0' }}>Gaze and tab-switch monitoring is active. Video is being recorded.</p>
+					<p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0.25rem 0 0 0' }}>Gaze, multi-face, phone, and tab-switch monitoring active. Video is being recorded.</p>
 				</div>
 			</div>
 		</div>

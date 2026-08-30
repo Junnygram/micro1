@@ -1,4 +1,5 @@
 'use client';
+import { getApiBase } from '@/lib/api';
 import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -12,7 +13,7 @@ function CompanyLoginForm() {
 	const [error, setError] = useState('');
 	const router = useRouter();
 	const searchParams = useSearchParams();
-	const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+	const apiBase = getApiBase();
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();

@@ -22,7 +22,7 @@ This changelog documents how the ZaraSourcing candidate vetting agent evolved fr
 | Metric | Simple Baseline | Agent Solution | Change |
 |---|---|---|---|
 | Verdict accuracy (10 cases) | 60.0% (6/10) | 70.0% (7/10) | +10% |
-| Discrepancy detection (4 fraud cases) | 0/4 caught | 4/4 caught | +100% |
+| Discrepancy detection (5 non-verified cases) | 1/5 caught | 5/5 caught | +80% |
 | False positives on honest candidates | 0 | 3 (path guessing) | Fixed in Iter 2 |
 | Human time per candidate | ~15 min manual GitHub review | ~30 sec automated | ~30× faster |
 | Cost per candidate | N/A (recruiter salary) | ~$0.003 Gemini API | Negligible |

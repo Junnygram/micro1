@@ -504,6 +504,12 @@ func (db *DB) UpdateCandidateScore(id string, score int, status string) error {
 	return err
 }
 
+func (db *DB) UpdateCandidateCompany(id, companyID string) error {
+	query := `UPDATE candidates SET company_id = ?, updated_at = ? WHERE id = ?`
+	_, err := db.Exec(query, companyID, time.Now(), id)
+	return err
+}
+
 func (db *DB) ListCandidates() ([]Candidate, error) {
 	query := `SELECT id, name, email, role, github_username, sourcing_score, status, job_id, company_id, resume_s3_url, recording_s3_url, created_at, updated_at FROM candidates ORDER BY sourcing_score DESC`
 	rows, err := db.Query(query)

@@ -1,4 +1,5 @@
 'use client';
+import { getApiBase } from '@/lib/api';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -26,8 +27,16 @@ export default function CompanyDashboard() {
 	const [analytics, setAnalytics] = useState<Analytics | null>(null);
 	const [shortlist, setShortlist] = useState<string[]>([]);
 	const [showCriteria, setShowCriteria] = useState(false);
+	const [showRecruiterChat, setShowRecruiterChat] = useState(false);
+	const [chatQuestion, setChatQuestion] = useState('');
+	const [chatAnswer, setChatAnswer] = useState('');
+	const [chatLoading, setChatLoading] = useState(false);
+	const [compareA, setCompareA] = useState('');
+	const [compareB, setCompareB] = useState('');
+	const [compareResult, setCompareResult] = useState<Record<string, unknown> | null>(null);
+	const [compareLoading, setCompareLoading] = useState(false);
 	const [criteria, setCriteria] = useState({ weight_open_source: 33, weight_code_quality: 34, weight_experience: 33, llm_model: 'bedrock' });
-	const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+	const apiBase = getApiBase();
 
 	useEffect(() => {
 		try {
@@ -183,6 +192,51 @@ export default function CompanyDashboard() {
 		setTimeout(() => setCopied(false), 2000);
 	};
 
+	const askRecruiter = async (question?: string) => {
+		if (!company) return;
+		const q = (question || chatQuestion).trim();
+		if (!q) return;
+		setChatLoading(true);
+		setChatAnswer('');
+		try {
+			const res = await fetch(`${apiBase}/api/recruiter/chat`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ company_id: company.id, job_id: selectedJob?.id, question: q }),
+			});
+			if (!res.ok) throw new Error('Chat failed');
+			const data = await res.json();
+			setChatAnswer(data.answer || 'No answer returned.');
+			if (!question) setChatQuestion(q);
+		} catch {
+			setChatAnswer('Could not reach AI copilot. Check backend keys or try again.');
+		} finally {
+			setChatLoading(false);
+		}
+	};
+
+	const runCompare = async () => {
+		if (!company || !compareA || !compareB || compareA === compareB) return;
+		setCompareLoading(true);
+		setCompareResult(null);
+		try {
+			const res = await fetch(`${apiBase}/api/recruiter/compare`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ company_id: company.id, candidate_id_a: compareA, candidate_id_b: compareB }),
+			});
+			if (!res.ok) throw new Error('Compare failed');
+			const data = await res.json();
+			setCompareResult(data.comparison || null);
+		} catch {
+			setCompareResult({ summary: 'Comparison unavailable — check backend AI configuration.' });
+		} finally {
+			setCompareLoading(false);
+		}
+	};
+
+	const fraudRiskColor = (risk?: string) => risk === 'high' ? '#ef4444' : risk === 'medium' ? '#f59e0b' : '#10b981';
+
 	const getScoreColor = (score: number) => score >= 75 ? '#10b981' : score >= 50 ? '#f59e0b' : '#ef4444';
 
 	const fileUrl = (path?: string, candidateId?: string) => {
@@ -218,11 +272,87 @@ export default function CompanyDashboard() {
 				<div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
 					<Link href="/demo" className="btn btn-secondary" style={{ fontSize: '0.75rem' }}>Demo guide</Link>
 					<Link href="/benchmark" className="btn btn-secondary" style={{ fontSize: '0.75rem' }}>Benchmark</Link>
+					<button className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={() => setShowRecruiterChat(!showRecruiterChat)}>
+						{showRecruiterChat ? 'Close AI' : '🤖 Recruiter AI'}
+					</button>
 					<button className="btn btn-secondary" style={{ fontSize: '0.8rem' }} onClick={() => { localStorage.removeItem('company'); router.push('/company/login'); }}>
 						Sign Out
 					</button>
 				</div>
 			</header>
+
+			{showRecruiterChat && (
+				<div className="panel" style={{ padding: '1.25rem', marginBottom: '1rem', border: '1px solid rgba(168,85,247,0.3)' }}>
+					<p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#e9d5ff', textTransform: 'uppercase', marginBottom: '0.75rem' }}>Recruiter AI Copilot</p>
+					<div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+						{[
+							'Why is Alex ranked below Emily?',
+							'Who has the highest fraud risk?',
+							'Summarize top 3 candidates for this role',
+						].map(q => (
+							<button key={q} type="button" className="btn btn-secondary" style={{ fontSize: '0.7rem', padding: '0.35rem 0.6rem' }}
+								onClick={() => askRecruiter(q)} disabled={chatLoading}>
+								{q}
+							</button>
+						))}
+					</div>
+					<div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+						<input value={chatQuestion} onChange={e => setChatQuestion(e.target.value)} placeholder="Ask about your applicants…"
+							onKeyDown={e => { if (e.key === 'Enter') askRecruiter(); }}
+							style={{ flex: 1, padding: '0.65rem 0.85rem', background: '#09070a', border: '1px solid var(--border-color)', borderRadius: '0.5rem', color: 'var(--text-primary)', fontSize: '0.85rem', outline: 'none' }} />
+						<button className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => askRecruiter()} disabled={chatLoading}>
+							{chatLoading ? '…' : 'Ask'}
+						</button>
+					</div>
+					{chatAnswer && (
+						<div style={{ padding: '0.85rem', background: 'rgba(168,85,247,0.08)', borderRadius: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+							{chatAnswer}
+						</div>
+					)}
+
+					<div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)' }}>
+						<p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.65rem' }}>Compare candidates</p>
+						<div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.75rem' }}>
+							<select value={compareA} onChange={e => setCompareA(e.target.value)} style={{ flex: 1, minWidth: '140px', padding: '0.5rem', background: '#09070a', border: '1px solid var(--border-color)', borderRadius: '0.35rem', color: 'var(--text-primary)', fontSize: '0.8rem' }}>
+								<option value="">Candidate A…</option>
+								{candidates.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+							</select>
+							<span style={{ color: 'var(--text-muted)' }}>vs</span>
+							<select value={compareB} onChange={e => setCompareB(e.target.value)} style={{ flex: 1, minWidth: '140px', padding: '0.5rem', background: '#09070a', border: '1px solid var(--border-color)', borderRadius: '0.35rem', color: 'var(--text-primary)', fontSize: '0.8rem' }}>
+								<option value="">Candidate B…</option>
+								{candidates.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+							</select>
+							<button className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={runCompare} disabled={compareLoading || !compareA || !compareB || compareA === compareB}>
+								{compareLoading ? '…' : 'Compare'}
+							</button>
+						</div>
+						{compareResult && (
+							<div style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '0.5rem', fontSize: '0.85rem' }}>
+								{typeof compareResult.recommendation === 'string' && (
+									<p style={{ fontWeight: 700, color: '#10b981', marginBottom: '0.65rem' }}>{compareResult.recommendation}</p>
+								)}
+								{typeof compareResult.summary === 'string' && (
+									<p style={{ color: 'var(--text-secondary)', marginBottom: '0.75rem', lineHeight: 1.5 }}>{compareResult.summary}</p>
+								)}
+								<div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+									{(['candidate_a', 'candidate_b'] as const).map(key => {
+										const card = compareResult[key] as { name?: string; strengths?: string; risks?: string; fraud_risk?: string } | undefined;
+										if (!card?.name) return null;
+										return (
+											<div key={key} style={{ padding: '0.65rem', background: 'rgba(0,0,0,0.25)', borderRadius: '0.35rem' }}>
+												<p style={{ fontWeight: 700, marginBottom: '0.35rem' }}>{card.name}</p>
+												<p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.15rem 0' }}><strong>Strengths:</strong> {card.strengths}</p>
+												<p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.15rem 0' }}><strong>Risks:</strong> {card.risks}</p>
+												<p style={{ fontSize: '0.75rem', color: fraudRiskColor(card.fraud_risk), margin: '0.15rem 0 0', fontWeight: 700 }}>Fraud risk: {card.fraud_risk || '—'}</p>
+											</div>
+										);
+									})}
+								</div>
+							</div>
+						)}
+					</div>
+				</div>
+			)}
 
 			{shortlist.length > 0 && (
 				<div className="panel" style={{ padding: '1rem 1.25rem', marginBottom: '1rem', border: '1px solid rgba(16,185,129,0.3)' }}>
@@ -476,7 +606,7 @@ export default function CompanyDashboard() {
 															{c.recording_s3_url && (
 																<a href={fileUrl(c.recording_s3_url, c.id)} target="_blank" rel="noreferrer" style={{ fontSize: '0.7rem', color: 'var(--color-accent)', textDecoration: 'none' }}>Interview video ↗</a>
 															)}
-															<Link href={`/candidate/${c.id}`} style={{ fontSize: '0.7rem', color: isDemoHighlight ? '#10b981' : 'var(--text-muted)', textDecoration: 'none', fontWeight: isDemoHighlight ? 700 : 400 }}>{isDemoHighlight ? 'Run GitHub audit →' : 'Audit workspace →'}</Link>
+															<Link href={`/candidate/${c.id}`} style={{ fontSize: '0.7rem', color: isDemoHighlight ? '#10b981' : 'var(--text-muted)', textDecoration: 'none', fontWeight: isDemoHighlight ? 700 : 400 }}>{isDemoHighlight ? 'View audit replay →' : 'Audit workspace →'}</Link>
 															<Link href={`/report/${c.github_username}`} style={{ fontSize: '0.7rem', color: 'var(--color-accent)', textDecoration: 'none' }}>Public report</Link>
 														</div>
 													</div>

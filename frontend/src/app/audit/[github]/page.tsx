@@ -1,4 +1,5 @@
 'use client';
+import { getApiBase } from '@/lib/api';
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -8,7 +9,7 @@ export default function AuditDeepLinkPage() {
 	const { github } = useParams() as { github: string };
 	const router = useRouter();
 	const [error, setError] = useState('');
-	const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+	const apiBase = getApiBase();
 
 	useEffect(() => {
 		if (!github) return;

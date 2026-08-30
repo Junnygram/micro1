@@ -1,4 +1,5 @@
 'use client';
+import { getApiBase } from '@/lib/api';
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
@@ -12,7 +13,7 @@ interface PreviewCandidate {
 
 export default function LandingPage() {
 	const [preview, setPreview] = useState<PreviewCandidate[]>([]);
-	const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+	const apiBase = getApiBase();
 
 	useEffect(() => {
 		fetch(`${apiBase}/api/demo/preview`)
@@ -57,25 +58,26 @@ export default function LandingPage() {
 					Hire engineers based on<br /><em>what they actually built</em>
 				</h1>
 				<p className="landing-sub">
-					ZaraSourcing goes beyond resume keywords. Our agent audits GitHub code, runs AI voice interviews with AR proctoring, and ranks candidates with cited evidence — not guesswork.
+					micro1&apos;s <strong>Zara</strong> agent runs AI voice interviews — but can&apos;t verify whether resume claims match GitHub code.
+					<strong> ZaraSourcing</strong> adds code-grounded audit (Bedrock + cited evidence), AR proctoring, and a recruiter dashboard. The agent recommends; you decide.
 				</p>
 				<div className="landing-cta-row">
-					<Link href="/company/login" className="btn btn-primary" style={{ padding: '0.85rem 1.75rem', fontSize: '0.95rem' }}>
-						Start hiring →
+					<Link href="/demo" className="btn btn-primary" style={{ padding: '0.85rem 1.75rem', fontSize: '0.95rem' }}>
+						Video walkthrough →
 					</Link>
 					<Link href="/benchmark" className="btn btn-secondary" style={{ padding: '0.85rem 1.75rem', fontSize: '0.95rem' }}>
-						Agent benchmark
+						Benchmark 60→70%
 					</Link>
 					<Link href="/report/riveradevops" className="btn btn-secondary" style={{ padding: '0.85rem 1.75rem', fontSize: '0.95rem' }}>
-						See fraud caught →
+						Fraud caught →
 					</Link>
 				</div>
 
 				<div className="landing-stats">
 					{[
-						{ value: '70%+', label: 'Audit accuracy vs 60% baseline' },
-						{ value: '<30s', label: 'Per candidate code review' },
-						{ value: '10', label: 'Evaluation test cases' },
+						{ value: '70%', label: 'Agent vs 60% baseline' },
+						{ value: '5/5', label: 'Discrepancy cases caught' },
+						{ value: '10', label: 'Benchmark test cases' },
 					].map(s => (
 						<div key={s.label} style={{ textAlign: 'center' }}>
 							<div className="landing-stat-value">{s.value}</div>
@@ -123,9 +125,11 @@ export default function LandingPage() {
 				</div>
 				<div className="landing-steps">
 					{[
-						{ num: '01', title: 'Company posts a role', desc: 'Create a job, set AI interview questions, and share one apply link with candidates.' },
-						{ num: '02', title: 'Candidate applies & interviews', desc: 'Candidates upload their resume and receive a unique link to their private AI voice interview — no public access.' },
-						{ num: '03', title: 'Company reviews evidence', desc: 'Ranked leaderboard, Gemini fit scores, GitHub audit citations, and interview recordings — visible only to your team.' },
+						{ num: '01', title: 'Company posts a role', desc: 'Create a job and AI interview questions. Share one apply link.' },
+						{ num: '02', title: 'Candidate applies', desc: 'Resume stored in S3 (or local dev). GitHub username captured for audit.' },
+						{ num: '03', title: 'Code audit agent runs', desc: 'Bedrock/Gemini agent lists repos, reads files, saves cited claim verdicts.' },
+						{ num: '04', title: 'Zara voice interview + AR', desc: 'Private link — Polly/Bedrock voice, MediaPipe gaze, multi-face & phone alerts.' },
+						{ num: '05', title: 'Recruiter decides', desc: 'Dashboard ranks applicants. Agent recommends — qualified human makes the hire call.' },
 					].map(s => (
 						<div key={s.num} className="landing-step">
 							<div className="landing-step-num">{s.num}</div>
@@ -147,8 +151,8 @@ export default function LandingPage() {
 						{ icon: '👀', title: 'Anti-Plagiarism Protection', desc: 'Advanced tracking ensures candidate authenticity during assessments, detecting distractions and unauthorized assistance.' },
 						{ icon: '🎙', title: 'Real-time Voice Interviews', desc: 'Conduct lifelike technical interviews using dynamic, human-quality AI voice interactions.' },
 						{ icon: '🎥', title: 'Comprehensive Analytics', desc: 'Review candidate sessions securely anytime with archived video playbacks and detailed performance breakdowns.' },
-						{ icon: '⚡', title: 'Code-Grounded Agent', desc: 'GitHub tools cite file-level evidence. 70% audit accuracy vs 60% text-only baseline on 10-case benchmark.' },
-						{ icon: '🛡', title: 'Fraud Detection', desc: 'Catches resume inflation baseline misses — 4/4 fraud cases flagged with repository evidence, not keywords.' },
+						{ icon: '⚡', title: 'Code-Grounded Agent', desc: 'GitHub tools cite file-level evidence. 70% verdict accuracy vs 60% text-only baseline — reproducible via make evaluate.' },
+						{ icon: '🛡', title: 'Fraud Detection', desc: 'Catches 5/5 discrepancy cases baseline misses (1/5) — exaggerated and failed claims with repo evidence.' },
 					].map(f => (
 						<div key={f.title} className="landing-feature">
 							<div className="landing-feature-icon">{f.icon}</div>
@@ -176,7 +180,7 @@ export default function LandingPage() {
 							{[
 								['Resume screening', 'Keyword match only', 'Agent + GitHub code audit'],
 								['Interview', 'Manual scheduling', 'Private AI voice link per candidate'],
-								['Proctoring', 'None', 'AR gaze + tab monitoring'],
+								['Proctoring', 'None', 'AR gaze, tab, multi-face, phone'],
 								['Recordings', 'N/A', 'Company admin only'],
 								['Fraud detection', 'Misses 4/4 test cases', 'Catches all 4/4'],
 							].map(([cap, ats, zs]) => (

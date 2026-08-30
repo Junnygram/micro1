@@ -1,4 +1,5 @@
 'use client';
+import { getApiBase } from '@/lib/api';
 
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
@@ -10,6 +11,17 @@ interface Job {
 	description: string;
 	company_id: string;
 	created_at: string;
+}
+
+interface ApplySample {
+	name: string;
+	email: string;
+	github_username: string;
+	role: string;
+	target: string;
+	tag: string;
+	resume_preview: string;
+	resume_url: string;
 }
 
 export default function ApplyPage() {
@@ -29,9 +41,11 @@ export default function ApplyPage() {
 	const [applyLoading, setApplyLoading] = useState(false);
 	const [interviewLink, setInterviewLink] = useState('');
 	const [applySuccess, setApplySuccess] = useState(false);
+	const [applySamples, setApplySamples] = useState<ApplySample[]>([]);
+	const [selectedSample, setSelectedSample] = useState('');
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
-	const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+	const apiBase = getApiBase();
 
 	useEffect(() => {
 		const fetchJobs = async () => {
@@ -58,7 +72,37 @@ export default function ApplyPage() {
 			}
 		};
 		fetchJobs();
-	}, [initialJobId]);
+		fetch(`${apiBase}/api/demo/apply-samples`)
+			.then(r => (r.ok ? r.json() : null))
+			.then(json => { if (json?.samples) setApplySamples(json.samples); })
+			.catch(() => {});
+	}, [initialJobId, apiBase]);
+
+	const applyDemoSample = async (sample: ApplySample) => {
+		setApplyName(sample.name);
+		setApplyEmail(sample.email);
+		setApplyGithub(sample.github_username);
+		setApplyRole(sample.role);
+		setSelectedSample(sample.github_username);
+		setApplySuccess(false);
+		try {
+			const res = await fetch(`${apiBase}${sample.resume_url}`);
+			if (!res.ok) throw new Error('Could not load demo resume');
+			const text = await res.text();
+			const blob = new Blob([text], { type: 'text/plain' });
+			const file = new File([blob], `${sample.github_username}_resume.txt`, { type: 'text/plain' });
+			setApplyResume(file);
+			if (fileInputRef.current) fileInputRef.current.value = '';
+		} catch {
+			setApplyResume(null);
+		}
+	};
+
+	const tagColor = (target: string) => {
+		if (target === 'exaggerated') return '#f87171';
+		if (target === 'failed') return '#fb923c';
+		return '#34d399';
+	};
 
 	const handleApply = async () => {
 		if (!applyName || !applyEmail || !applyGithub) {
@@ -110,6 +154,7 @@ export default function ApplyPage() {
 			setApplyEmail('');
 			setApplyGithub('');
 			setApplyResume(null);
+			setSelectedSample('');
 			if (fileInputRef.current) fileInputRef.current.value = '';
 			
 			// No redirect — candidate stays to copy their interview link
@@ -178,6 +223,36 @@ export default function ApplyPage() {
 					)}
 
 					<div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+						{applySamples.length > 0 && (
+							<div style={{ padding: '1.25rem', background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.25)', borderRadius: '0.75rem' }}>
+								<p style={{ fontSize: '0.85rem', fontWeight: 700, color: '#e9d5ff', marginBottom: '0.35rem' }}>Demo candidates — one-click fill</p>
+								<p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.85rem' }}>
+									Pick a benchmark profile to pre-fill the form and attach a sample resume. Known GitHub handles get instant audit data on the dashboard.
+								</p>
+								<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.5rem' }}>
+									{applySamples.map(s => (
+										<button
+											key={s.github_username}
+											type="button"
+											onClick={() => applyDemoSample(s)}
+											style={{
+												padding: '0.65rem 0.5rem',
+												background: selectedSample === s.github_username ? 'rgba(168,85,247,0.2)' : 'rgba(0,0,0,0.35)',
+												border: `1px solid ${selectedSample === s.github_username ? 'var(--color-accent)' : 'var(--border-color)'}`,
+												borderRadius: '0.5rem',
+												cursor: 'pointer',
+												textAlign: 'left',
+											}}
+										>
+											<span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#fff' }}>{s.name.split(' ')[0]}</span>
+											<span style={{ display: 'block', fontSize: '0.65rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>@{s.github_username}</span>
+											<span style={{ display: 'block', fontSize: '0.6rem', marginTop: '0.25rem', color: tagColor(s.target) }}>{s.tag}</span>
+										</button>
+									))}
+								</div>
+							</div>
+						)}
+
 						{/* Target Opening Selector */}
 						<div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
 							<label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Target Opening *</label>
