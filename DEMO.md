@@ -1,30 +1,69 @@
 # ZaraSourcing — Demo Recording Script
 
 > **Total runtime target: 3–5 minutes**
-> Record in Chrome or Edge (required for Speech Recognition + AR).
-> Have two terminal tabs open before you hit record.
+> **For judges:** Lead with the agent audit (Scenes 1–3), then show the full SaaS pipeline (Scenes 4–7).
+> Record in Chrome or Edge. Have terminal open with `make run` already running.
 
 ---
 
-## ⚡ Pre-Recording Checklist (do this BEFORE hitting record)
+## ⚡ Pre-Recording Checklist
 
-- [ ] `make run` is already running (backend :8080, frontend :3000)
-- [ ] Browser open at `http://localhost:3000`
-- [ ] Microphone + camera permissions already granted in Chrome
+- [ ] `make run` running (backend :8080, frontend :3000)
 - [ ] `.env` has `GEMINI_API_KEY` set
-- [ ] Good lighting for webcam (AR face tracking is a visual wow moment)
-- [ ] Close Slack, notifications, other tabs
+- [ ] Browser at `http://localhost:3000`
+- [ ] Close notifications / other tabs
 
 ---
 
 ## 🎬 Scene 1 — The Problem (30 sec)
 
-**Show:** Landing page at `http://localhost:3000`
+**Show:** Landing page
 
 **Say:**
-> "Resume inflation is a real problem. A candidate claims they're an expert in Go concurrency and open-source contributions — ATS tools score them 100 out of 100 on keywords alone. ZaraSourcing fixes this with an end-to-end AI hiring pipeline: GitHub code auditing, a live AI voice interview, and Gemini scoring — no human interviewer needed."
+> "Recruiters reviewing technical candidates face a bottleneck: ATS tools score resumes on keywords alone, so inflated CVs pass easily. A candidate claims Go concurrency expertise — the ATS gives 100 out of 100. But nobody checked their GitHub. ZaraSourcing uses an agent to audit resume claims against actual code evidence."
 
-**Action:** Briefly scroll the landing page, then click **"For Companies →"**
+**Action:** Navigate to candidate audit workspace or main dashboard with seeded candidates.
+
+---
+
+## 🎬 Scene 2 — Baseline vs Agent (60 sec) ← **Most important for judges**
+
+**Show:** Terminal running `make evaluate` OR pre-run results in README/CHANGELOG
+
+**Say:**
+> "Our baseline is a single Gemini prompt — resume and job description only, no tools. It scores 60 percent accuracy on 10 test candidates. It missed every inflated resume."
+
+**Action:** Open [CHANGELOG.md](./CHANGELOG.md) — point at the iteration table.
+
+**Say:**
+> "Our agent gets tools: list repos, list files, read code, check proctoring logs. It cites file and line numbers for every verdict. Accuracy jumped to 70 percent, and it caught all four fraud cases the baseline missed. The key fix was adding list_repo_files — the agent was guessing paths and marking honest candidates as liars."
+
+**Action:** Open `backend/data/trajectories/emilycodes_trajectory.md` — show the path-guessing failure and the fix.
+
+---
+
+## 🎬 Scene 3 — Live Agent Run (90 sec)
+
+**Show:** `/candidate/[id]` — select Alex Rivera (@riveradevops)
+
+**Action:**
+1. Click **Run ZaraSourcing Audit (Grounded Agent)**
+2. Watch agent steps stream: list repos → list files → read code → save claim audits
+3. Show final scorecard with cited evidence
+
+**Say:**
+> "Watch the agent work. It lists repositories, discovers actual file paths, reads the code, and files a verdict with citations. Alex claimed Docker and Kubernetes expertise — his repo only has an empty README. Verdict: exaggerated, with evidence."
+
+---
+
+## 🎬 Scene 4 — Full SaaS Pipeline (optional, 90 sec)
+
+**Show:** Company login → create job → candidate applies → AI voice interview → leaderboard
+
+**Say:**
+> "Beyond the audit agent, ZaraSourcing is a full hiring platform: companies post jobs, candidates take AI voice interviews with live transcription and AR proctoring, and Gemini scores every answer on a leaderboard."
+
+*(Follow original Scenes 2–8 from previous version for SaaS demo details)*
 
 ---
 

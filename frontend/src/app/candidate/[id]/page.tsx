@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 interface Step {
 	id: number;
@@ -31,6 +32,7 @@ interface Candidate {
 	github_username: string;
 	sourcing_score: number;
 	status: 'evaluating' | 'completed' | 'failed' | 'pending';
+	company_id?: string;
 	recording_s3_url?: string;
 }
 
@@ -51,6 +53,8 @@ interface InterviewQuestion {
 }
 
 export default function CandidateDetail({ params }: { params: { id: string } }) {
+	const router = useRouter();
+	const [companyID, setCompanyID] = useState<string | null>(null);
 	const [candidate, setCandidate] = useState<Candidate | null>(null);
 	const [steps, setSteps] = useState<Step[]>([]);
 	const [audits, setAudits] = useState<ClaimAudit[]>([]);
@@ -59,6 +63,9 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [selectedAudit, setSelectedAudit] = useState<ClaimAudit | null>(null);
+	const [auditLoading, setAuditLoading] = useState(false);
+	const [showTrajectory, setShowTrajectory] = useState(false);
+	const [trajectoryMd, setTrajectoryMd] = useState('');
 
 	// Proctoring States
 	const [webcamActive, setWebcamActive] = useState(false);
@@ -114,10 +121,12 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 		}
 	];
 
-	const fetchCandidateData = async () => {
+	const fetchCandidateData = async (cid?: string) => {
+		const coId = cid || companyID;
+		if (!coId) return;
 		try {
-			const res = await fetch(`${apiBase}/api/candidates/${params.id}`);
-			if (!res.ok) throw new Error('Candidate details not found');
+			const res = await fetch(`${apiBase}/api/candidates/${params.id}?company_id=${coId}`);
+			if (!res.ok) throw new Error('Candidate details not found or access denied');
 			const data = await res.json();
 			setCandidate(data.candidate);
 			setSteps(data.steps || []);
@@ -142,16 +151,28 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 	};
 
 	useEffect(() => {
-		fetchCandidateData();
-		// Poll if active session is evaluating
+		try {
+			const stored = localStorage.getItem('company');
+			if (!stored) {
+				router.push('/company/login');
+				return;
+			}
+			const co = JSON.parse(stored);
+			setCompanyID(co.id);
+			fetchCandidateData(co.id);
+		} catch {
+			router.push('/company/login');
+		}
+	}, [params.id, router]);
+
+	useEffect(() => {
 		const timer = setInterval(() => {
-			if (candidate && (candidate.status === 'evaluating' || interviewActive)) {
+			if (candidate?.status === 'evaluating' || auditLoading) {
 				fetchCandidateData();
 			}
 		}, 1500);
-
 		return () => clearInterval(timer);
-	}, [candidate?.status, interviewActive]);
+	}, [candidate?.status, auditLoading, companyID]);
 
 	// Auto Scroll live terminal logs to bottom
 	useEffect(() => {
@@ -649,22 +670,48 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 		setInterviewSubmitted(true);
 	};
 
-	const triggerAuditSession = async () => {
+	const triggerAuditSession = async (mode: 'baseline' | 'advanced' = 'advanced') => {
 		if (!candidate) return;
+		setAuditLoading(true);
+		setError(null);
 		try {
-			await fetch(`${apiBase}/api/sessions`, {
+			const res = await fetch(`${apiBase}/api/sessions`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					candidate_id: candidate.id,
-					mode: 'advanced'
+					mode,
 				}),
 			});
+			if (!res.ok) throw new Error('Failed to start audit session');
 			fetchCandidateData();
 		} catch (err) {
 			console.error('Audit session start failed:', err);
+			setError((err as Error).message);
+		} finally {
+			setAuditLoading(false);
 		}
 	};
+
+	const loadTrajectoryReplay = async () => {
+		if (!candidate) return;
+		try {
+			const res = await fetch(`${apiBase}/api/trajectory/${candidate.github_username}`);
+			if (!res.ok) throw new Error('Trajectory not found');
+			const data = await res.json();
+			setTrajectoryMd(data.markdown || '');
+			setShowTrajectory(true);
+		} catch {
+			setError('Could not load saved agent trajectory.');
+		}
+	};
+
+	const geminiStepError = steps.find(s =>
+		s.type === 'system' && s.content.includes('Error calling Gemini API')
+	)?.content;
+
+	const inflatedAudits = audits.filter(a => a.status === 'exaggerated' || a.status === 'failed');
+	const showInflationBanner = inflatedAudits.length > 0 || candidate?.github_username === 'riveradevops';
 
 	const getTimelinePercent = (timestamp: string) => {
 		const parts = timestamp.split(':');
@@ -716,210 +763,63 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 						</p>
 					</div>
 				</div>
-				<div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+				<div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
 					<span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 800, color: 'var(--color-accent)' }}>
 						Vetting Rank: {candidate.sourcing_score > 0 ? `${candidate.sourcing_score}/100` : 'Pending'}
 					</span>
-					<Link href="/" className="btn btn-secondary">
-						Pipeline Overview
+					<button
+						className="btn btn-primary"
+						disabled={auditLoading || candidate.status === 'evaluating'}
+						onClick={() => triggerAuditSession('advanced')}
+						style={{ fontSize: '0.85rem' }}
+					>
+						{auditLoading || candidate.status === 'evaluating' ? 'Agent Running…' : 'Run GitHub Audit'}
+					</button>
+					<button
+						className="btn btn-secondary"
+						disabled={auditLoading || candidate.status === 'evaluating'}
+						onClick={() => triggerAuditSession('baseline')}
+						style={{ fontSize: '0.85rem' }}
+					>
+						Run Baseline
+					</button>
+					<Link href="/company/dashboard" className="btn btn-secondary" style={{ fontSize: '0.85rem' }}>
+						← Dashboard
 					</Link>
 				</div>
 			</header>
 
-			{/* INTERACTIVE TECHNICAL INTERVIEW SANDBOX PANEL */}
-			{!interviewSubmitted && (candidate.status === 'pending' || candidate.status === 'evaluating' || interviewActive) && (
-				<section className="panel" style={{ marginTop: '1.5rem', border: '1px solid var(--color-accent)', background: 'rgba(99,102,241,0.02)' }}>
-					<div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-						<span>🧠 Vetting Interview Assessment Simulator (micro1 Clone)</span>
-						<span className="badge running">Active Screening Session</span>
+			{showInflationBanner && (
+				<div style={{ marginTop: '1rem', padding: '1rem 1.25rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: '0.75rem' }}>
+					<p style={{ fontWeight: 800, color: '#ef4444', margin: 0, fontSize: '0.95rem' }}>
+						Resume inflation detected — {inflatedAudits.length || 1} claim{(inflatedAudits.length || 1) !== 1 ? 's' : ''} flagged
+					</p>
+					<p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '0.35rem 0 0' }}>
+						Agent cited repository evidence below. Text-only baseline would likely miss this.
+					</p>
+				</div>
+			)}
+
+			{geminiStepError && (
+				<div style={{ marginTop: '1rem', padding: '1rem 1.25rem', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: '0.75rem' }}>
+					<p style={{ fontWeight: 700, color: '#f59e0b', marginBottom: '0.35rem', fontSize: '0.9rem' }}>Live agent unavailable — seeded results shown</p>
+					<p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+						Check AWS Bedrock or Gemini API keys in `.env` to run live audits.
+					</p>
+					<div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+						<button className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={loadTrajectoryReplay}>View saved trajectory</button>
 					</div>
+				</div>
+			)}
 
-					{!interviewActive ? (
-						<div style={{ padding: '1.5rem', textAlign: 'center' }}>
-							<h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
-								Hi {candidate.name.split(' ')[0]}, welcome to the {candidate.role} Vetting Assessment.
-							</h3>
-							<p style={{ color: 'var(--text-secondary)', marginBottom: '1.25rem', fontSize: '0.85rem' }}>
-								This session will be recorded and proctored via eye-tracking and tab-focus security sensors to verify credentials.
-							</p>
-							<button className="btn btn-primary" onClick={startInterview}>
-								Start Vetting Interview Session
-							</button>
-						</div>
-					) : (
-						<div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '2rem', marginTop: '1rem' }}>
-							{/* Questions Panel */}
-							<div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-								<div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-									<span>Question {currentQuestionIndex + 1} of {interviewQuestions.length}</span>
-									<span style={{ color: isListening ? '#10b981' : 'var(--color-accent)', fontWeight: 600 }}>
-										{isListening ? '🎙 LISTENING — Speak your answer...' : 'Security: Active Gaze Tracking & Video REC'}
-									</span>
-								</div>
-
-								<div style={{ background: '#09070a', padding: '1.25rem', borderRadius: '0.5rem', border: '1px solid var(--border-color)' }}>
-									<h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: '1.5' }}>
-										{interviewQuestions[currentQuestionIndex].question}
-									</h3>
-								</div>
-
-								<textarea
-									value={answers[currentQuestionIndex]}
-									onChange={e => {
-										const nextAns = [...answers];
-										nextAns[currentQuestionIndex] = e.target.value;
-										setAnswers(nextAns);
-									}}
-									rows={6}
-									placeholder="Type your technical response here... (Try looking away from the camera or clicking outside the window to trigger focus alerts)"
-									style={{
-										width: '100%',
-										padding: '1rem',
-										background: '#09070a',
-										border: '1px solid var(--border-color)',
-										borderRadius: '0.5rem',
-										color: 'var(--text-primary)',
-										fontFamily: 'inherit',
-										fontSize: '0.9rem',
-										outline: 'none',
-										resize: 'none'
-									}}
-								/>
-
-								<div style={{ display: 'flex', justifyContent: 'space-between' }}>
-									<button
-										className="btn btn-secondary"
-										disabled={currentQuestionIndex === 0}
-										onClick={() => setCurrentQuestionIndex(prev => prev - 1)}
-									>
-										Previous
-									</button>
-
-									{currentQuestionIndex < interviewQuestions.length - 1 ? (
-										<button
-											className="btn btn-primary"
-											onClick={() => setCurrentQuestionIndex(prev => prev + 1)}
-										>
-											Next Question
-										</button>
-									) : (
-										<button
-											className="btn btn-primary"
-											style={{ background: 'linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%)' }}
-											onClick={submitInterview}
-										>
-											Submit Vetting Interview
-										</button>
-									)}
-								</div>
-							</div>
-
-							{/* Live Webcam Proctoring HUD (Side panel during interview) */}
-							<div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-								<div style={{
-									height: '180px',
-									background: '#09070a',
-									border: `2px solid ${faceStatus === 'looking' ? '#10b981' : faceStatus === 'away' ? '#ef4444' : '#f59e0b'}`,
-									borderRadius: '0.5rem',
-									position: 'relative',
-									overflow: 'hidden',
-									display: 'flex',
-									justifyContent: 'center',
-									alignItems: 'center'
-								}}>
-									<video
-										ref={webcamRef}
-										autoPlay
-										playsInline
-										muted
-										style={{
-											width: '100%',
-											height: '100%',
-											objectFit: 'cover',
-											display: webcamActive ? 'block' : 'none',
-											transform: 'scaleX(-1)'
-										}}
-									/>
-									{webcamActive && (
-										<canvas ref={arCanvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', transform: 'scaleX(-1)' }} />
-									)}
-									{!webcamActive && (
-										<div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Camera Loading...</div>
-									)}
-
-									{/* Visual reticle HUD */}
-									{webcamActive && (
-										<div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', alignItems: 'center', pointerEvents: 'none' }}>
-											<div style={{
-												width: '90px',
-												height: '90px',
-												borderRadius: '50%',
-												border: `2px dashed ${faceStatus === 'looking' ? 'rgba(16, 185, 129, 0.4)' : faceStatus === 'away' ? 'rgba(239, 68, 68, 0.6)' : 'rgba(245, 158, 11, 0.4)'}`,
-												position: 'relative'
-											}} />
-											
-											{/* Pulsating red REC indicator */}
-											<div style={{ position: 'absolute', top: '8px', left: '10px', display: 'flex', alignItems: 'center', gap: '0.3rem', background: 'rgba(0,0,0,0.6)', padding: '0.1rem 0.35rem', borderRadius: '0.2rem' }}>
-												<span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ef4444', animation: 'pulse 1s infinite' }}></span>
-												<span style={{ fontSize: '0.55rem', color: '#fca5a5', fontWeight: 'bold', fontFamily: 'var(--font-mono)' }}>REC</span>
-											</div>
-
-											<span style={{
-												position: 'absolute',
-												bottom: '8px',
-												fontSize: '0.6rem',
-												fontFamily: 'var(--font-mono)',
-												color: faceStatus === 'looking' ? '#10b981' : faceStatus === 'away' ? '#ef4444' : '#f59e0b',
-												background: 'rgba(0,0,0,0.8)',
-												padding: '0.1rem 0.4rem',
-												borderRadius: '0.2rem'
-											}}>
-												{faceStatus === 'looking' ? 'LOCK ACTIVE' : faceStatus === 'away' ? 'DEVIATION DETECTED' : 'ALIGNING TARGET'}
-											</span>
-										</div>
-									)}
-								</div>
-
-								{webcamActive && (
-									<div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '0.5rem', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-										<div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-											<span>🎙 Mic Sensitivity Volume:</span>
-											<span style={{ color: audioLevel > 0.15 ? 'var(--color-success)' : 'var(--text-muted)', fontWeight: 'bold' }}>
-												{audioLevel > 0.15 ? 'SPEECH ACTIVE' : 'Muted/Silence'}
-											</span>
-										</div>
-										<div style={{ height: '8px', background: '#09070a', borderRadius: '4px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.05)' }}>
-											<div style={{
-												height: '100%',
-												width: `${audioLevel * 100}%`,
-												background: audioLevel > 0.15 ? 'linear-gradient(90deg, #10b981 0%, #3b82f6 100%)' : '#64748b',
-												transition: 'width 0.1s ease',
-												boxShadow: audioLevel > 0.15 ? '0 0 8px rgba(16, 185, 129, 0.6)' : 'none'
-											}} />
-										</div>
-									</div>
-								)}
-
-								{/* Dynamic stats */}
-								<div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: '0.5rem', padding: '1rem', fontSize: '0.85rem' }}>
-									<h4 style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Session Alerts Logged</h4>
-									<div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-										<div style={{ display: 'flex', justifyContent: 'space-between' }}>
-											<span style={{ color: 'var(--text-secondary)' }}>Tab switches:</span>
-											<span style={{ color: tabBlurCount > 0 ? '#ef4444' : 'var(--text-muted)', fontWeight: 'bold' }}>{tabBlurCount} alerts</span>
-										</div>
-										<div style={{ display: 'flex', justifyContent: 'space-between' }}>
-											<span style={{ color: 'var(--text-secondary)' }}>Gaze warnings:</span>
-											<span style={{ color: proctoring.filter(p => p.event_type === 'look_away').length > 0 ? '#ef4444' : 'var(--text-muted)', fontWeight: 'bold' }}>
-												{proctoring.filter(p => p.event_type === 'look_away').length} alerts
-											</span>
-										</div>
-									</div>
-								</div>
-							</div>
-						</div>
-					)}
-				</section>
+			{showTrajectory && trajectoryMd && (
+				<div className="panel" style={{ marginTop: '1rem', padding: '1.25rem', maxHeight: '400px', overflow: 'auto' }}>
+					<div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+						<p style={{ fontWeight: 700, fontSize: '0.9rem' }}>Saved agent trajectory — @{candidate.github_username}</p>
+						<button className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={() => setShowTrajectory(false)}>Close</button>
+					</div>
+					<pre style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono)', lineHeight: 1.5 }}>{trajectoryMd.slice(0, 12000)}{trajectoryMd.length > 12000 ? '\n\n… (truncated)' : ''}</pre>
+				</div>
 			)}
 
 			{/* Grid workspace */}
@@ -933,7 +833,7 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 							<span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#f59e0b' }}></span>
 							<span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#10b981' }}></span>
 						</div>
-						<span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>ZaraSourcing Shell v3.1-lite</span>
+						<span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Agent audit workspace</span>
 						<span className="badge running">LIVE AUDIT WORKSPACE</span>
 					</div>
 
@@ -1334,15 +1234,13 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 						</div>
 
 						{/* Playback player */}
-						{candidate.recording_s3_url && (
+						{candidate.recording_s3_url && companyID && (
 							<div style={{ marginTop: '1.5rem', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: '0.5rem', padding: '1rem' }}>
 								<h4 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.75rem' }}>
-									🎥 Recorded Screening Interview Playback
+									Interview Recording <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400 }}>(company admin only)</span>
 								</h4>
 								<video
-									src={candidate.recording_s3_url.startsWith('s3://') 
-										? `${apiBase}/recordumes/${candidate.id}_interview.webm` 
-										: candidate.recording_s3_url}
+									src={`${apiBase}/api/recordings/${candidate.id}?company_id=${companyID}`}
 									controls
 									playsInline
 									style={{
@@ -1353,9 +1251,6 @@ export default function CandidateDetail({ params }: { params: { id: string } }) 
 										background: '#000000'
 									}}
 								/>
-								<p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.4rem', fontFamily: 'var(--font-mono)' }}>
-									Bucket Location: {candidate.recording_s3_url}
-								</p>
 							</div>
 						)}
 

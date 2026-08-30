@@ -311,6 +311,26 @@ The GitHub audit agent was evaluated against 10 seeded candidate profiles with k
 | Baseline (text-only keyword match) | **60.0%** |
 | ZaraSourcing (code-grounded audit) | **70.0%** |
 
+<!-- BENCHMARK_START -->
+### Vetting Benchmark Metrics
+* **Baseline Accuracy (Text Match):** 60.0%
+* **ZaraSourcing Accuracy (Code Grounded):** 70.0%
+
+| Candidate | GitHub | Vetting Role | Target Verdict | Baseline Verdict | ZaraSourcing Verdict | Final Match | Result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Jessica Taylor | @jesscloud | Cloud Infrastructure Engineer | `verified` | `verified` | `verified` | **95%** | ✅ SUCCESS |
+| Carlos Gomez | @carlosfront | Next.js Tailwind Developer | `verified` | `verified` | `verified` | **90%** | ✅ SUCCESS |
+| Olaleye Oyewunmi | @junnygram | Senior Full-Stack Engineer (Go/Next.js) | `verified` | `verified` | `exaggerated` | **89%** | ❌ MISSED |
+| Emily Chen | @emilycodes | Senior Frontend Developer | `verified` | `verified` | `exaggerated` | **89%** | ❌ MISSED |
+| Alex Rivera | @riveradevops | DevOps & SRE Engineer | `exaggerated` | `verified` | `exaggerated` | **79%** | ✅ SUCCESS |
+| Michael Chang | @mikecode | Full-Stack Node.js Developer | `verified` | `verified` | `exaggerated` | **79%** | ❌ MISSED |
+| Raj Patel | @rajconcurrency | Golang Backend Developer | `failed` | `failed` | `failed` | **75%** | ✅ SUCCESS |
+| David Kim | @davidsecurity | Security Engineer | `failed` | `verified` | `failed` | **75%** | ✅ SUCCESS |
+| Amara Okafor | @amaracodes | Python Backend Developer | `failed` | `verified` | `failed` | **75%** | ✅ SUCCESS |
+| Sarah Jenkins | @sarahml | Data Scientist & ML Engineer | `exaggerated` | `verified` | `failed` | **60%** | ✅ SUCCESS |
+
+<!-- BENCHMARK_END -->
+
 | Candidate | Role | Target | ZaraSourcing | Result |
 |---|---|---|---|---|
 | Jessica Taylor | Cloud Infrastructure Engineer | `verified` | `verified` | ✅ |

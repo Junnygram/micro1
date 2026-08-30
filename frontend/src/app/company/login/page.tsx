@@ -78,9 +78,39 @@ export default function CompanyLogin() {
 					</form>
 
 					{isLogin && (
-						<p style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-							Demo: <span style={{ color: 'var(--color-accent)', fontFamily: 'var(--font-mono)' }}>demo@zarasourcing.com</span> / <span style={{ color: 'var(--color-accent)', fontFamily: 'var(--font-mono)' }}>demo123</span>
-						</p>
+						<>
+							<button
+								type="button"
+								className="btn btn-secondary"
+								style={{ marginTop: '1rem', width: '100%', padding: '0.75rem', fontSize: '0.9rem' }}
+								disabled={loading}
+								onClick={async () => {
+									setEmail('demo@zarasourcing.com');
+									setPassword('demo123');
+									setLoading(true);
+									try {
+										const res = await fetch(`${apiBase}/api/companies/login`, {
+											method: 'POST',
+											headers: { 'Content-Type': 'application/json' },
+											body: JSON.stringify({ email: 'demo@zarasourcing.com', password: 'demo123' }),
+										});
+										if (!res.ok) throw new Error('Demo login failed');
+										const data = await res.json();
+										localStorage.setItem('company', JSON.stringify(data));
+										router.push('/company/dashboard');
+									} catch (err) {
+										setError((err as Error).message);
+									} finally {
+										setLoading(false);
+									}
+								}}
+							>
+								{loading ? 'Signing in...' : '⚡ One-click demo login'}
+							</button>
+							<p style={{ textAlign: 'center', marginTop: '0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+								Demo: <span style={{ color: 'var(--color-accent)', fontFamily: 'var(--font-mono)' }}>demo@zarasourcing.com</span> / <span style={{ color: 'var(--color-accent)', fontFamily: 'var(--font-mono)' }}>demo123</span>
+							</p>
+						</>
 					)}
 				</div>
 			</div>

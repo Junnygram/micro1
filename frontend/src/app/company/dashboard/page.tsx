@@ -4,8 +4,9 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 interface Job { id: string; title: string; description: string; created_at: string; }
-interface Candidate { id: string; name: string; email: string; role: string; github_username: string; sourcing_score: number; status: string; job_id: string; }
+interface Candidate { id: string; name: string; email: string; role: string; github_username: string; sourcing_score: number; status: string; job_id: string; resume_s3_url?: string; recording_s3_url?: string; }
 interface InterviewSession { id: string; candidate_id: string; token: string; status: string; interview_score: number; fit_summary: string; created_at: string; }
+interface Analytics { total_applicants: number; pending_review: number; audits_completed: number; interviews_completed: number; avg_audit_score: number; avg_interview_score: number; }
 
 export default function CompanyDashboard() {
 	const router = useRouter();
@@ -21,6 +22,8 @@ export default function CompanyDashboard() {
 	const [newDesc, setNewDesc] = useState('');
 	const [saving, setSaving] = useState(false);
 	const [copied, setCopied] = useState(false);
+	const [allCandidates, setAllCandidates] = useState<Candidate[]>([]);
+	const [analytics, setAnalytics] = useState<Analytics | null>(null);
 	const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
 	useEffect(() => {
@@ -34,8 +37,23 @@ export default function CompanyDashboard() {
 
 	useEffect(() => {
 		if (!company) return;
-		fetchJobs();
+		const refresh = () => {
+			fetchJobs();
+			fetchAllCandidates();
+			fetchAnalytics();
+		};
+		refresh();
+		const interval = setInterval(refresh, 12000);
+		return () => clearInterval(interval);
 	}, [company]);
+
+	const fetchAnalytics = async () => {
+		if (!company) return;
+		try {
+			const res = await fetch(`${apiBase}/api/companies/analytics?company_id=${company.id}`);
+			if (res.ok) setAnalytics(await res.json());
+		} catch { /* ignore */ }
+	};
 
 	useEffect(() => {
 		if (!selectedJob) return;
@@ -50,7 +68,18 @@ export default function CompanyDashboard() {
 		const data = await res.json();
 		const list = data || [];
 		setJobs(list);
-		if (list.length > 0 && !selectedJob) setSelectedJob(list[0]);
+		if (list.length > 0 && !selectedJob) {
+			const devops = list.find((j: Job) => j.id === 'devops_job') || list[0];
+			setSelectedJob(devops);
+		}
+	};
+
+	const fetchAllCandidates = async () => {
+		if (!company) return;
+		try {
+			const res = await fetch(`${apiBase}/api/candidates?company_id=${company.id}`);
+			if (res.ok) setAllCandidates(await res.json() || []);
+		} catch { }
 	};
 
 	const fetchCandidates = async () => {
@@ -115,6 +144,15 @@ export default function CompanyDashboard() {
 
 	const getScoreColor = (score: number) => score >= 75 ? '#10b981' : score >= 50 ? '#f59e0b' : '#ef4444';
 
+	const fileUrl = (path?: string, candidateId?: string) => {
+		if (!path || !company) return '';
+		if (path.startsWith('http')) return path;
+		if (path.includes('interview') || path.includes('recordumes')) {
+			return `${apiBase}/api/recordings/${candidateId}?company_id=${company.id}`;
+		}
+		return `${apiBase}${path.startsWith('/') ? '' : '/'}${path}`;
+	};
+
 	const completedSessions = sessions.filter(s => s.status === 'completed').sort((a, b) => b.interview_score - a.interview_score);
 
 	if (!company) return null;
@@ -133,11 +171,59 @@ export default function CompanyDashboard() {
 					</div>
 				</div>
 				<div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+					<Link href="/benchmark" className="btn btn-secondary" style={{ fontSize: '0.75rem' }}>Benchmark</Link>
 					<button className="btn btn-secondary" style={{ fontSize: '0.8rem' }} onClick={() => { localStorage.removeItem('company'); router.push('/company/login'); }}>
 						Sign Out
 					</button>
 				</div>
 			</header>
+
+			{analytics && (
+				<div className="stats-grid" style={{ marginBottom: '1rem' }}>
+					<div className="stat-card">
+						<span className="stat-label">Total applicants</span>
+						<span className="stat-value" style={{ color: 'var(--color-accent)' }}>{analytics.total_applicants}</span>
+						<span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Auto-refreshes every 12s</span>
+					</div>
+					<div className="stat-card">
+						<span className="stat-label">Interviews done</span>
+						<span className="stat-value passed">{analytics.interviews_completed}</span>
+						<span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Avg score: {analytics.avg_interview_score}%</span>
+					</div>
+					<div className="stat-card">
+						<span className="stat-label">Audits completed</span>
+						<span className="stat-value passed">{analytics.audits_completed}</span>
+						<span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Avg score: {analytics.avg_audit_score}%</span>
+					</div>
+					<div className="stat-card">
+						<span className="stat-label">Pending review</span>
+						<span className="stat-value" style={{ color: '#f59e0b' }}>{analytics.pending_review}</span>
+						<span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>New applies awaiting audit</span>
+					</div>
+				</div>
+			)}
+
+			{analytics && (
+				<div className="panel" style={{ padding: '1rem 1.25rem', marginBottom: '1.5rem' }}>
+					<p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.75rem' }}>Hiring pipeline</p>
+					<div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+						{[
+							{ label: 'Applied', count: analytics.total_applicants, color: 'var(--color-accent)' },
+							{ label: 'Interviewed', count: analytics.interviews_completed, color: '#a855f7' },
+							{ label: 'Audited', count: analytics.audits_completed, color: '#10b981' },
+							{ label: 'Pending', count: analytics.pending_review, color: '#f59e0b' },
+						].map((stage, i, arr) => (
+							<div key={stage.label} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+								<div style={{ textAlign: 'center', padding: '0.5rem 0.85rem', background: 'rgba(255,255,255,0.03)', borderRadius: '0.5rem', border: '1px solid var(--border-color)', minWidth: '90px' }}>
+									<p style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '1.25rem', color: stage.color, margin: 0 }}>{stage.count}</p>
+									<p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0.15rem 0 0' }}>{stage.label}</p>
+								</div>
+								{i < arr.length - 1 && <span style={{ color: 'var(--text-muted)', fontSize: '1rem' }}>→</span>}
+							</div>
+						))}
+					</div>
+				</div>
+			)}
 
 			<div className="dashboard-grid">
 				{/* Sidebar — Jobs */}
@@ -160,12 +246,15 @@ export default function CompanyDashboard() {
 
 						<div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
 							{jobs.length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '1rem 0' }}>No jobs yet. Create one above.</p>}
-							{jobs.map(j => (
-								<button key={j.id} onClick={() => setSelectedJob(j)} style={{ textAlign: 'left', padding: '0.75rem', borderRadius: '0.5rem', border: `1px solid ${selectedJob?.id === j.id ? 'var(--color-accent)' : 'var(--border-color)'}`, background: selectedJob?.id === j.id ? 'rgba(6,182,212,0.08)' : 'rgba(255,255,255,0.02)', cursor: 'pointer', transition: 'all 0.2s' }}>
-									<p style={{ fontWeight: 600, fontSize: '0.85rem', color: selectedJob?.id === j.id ? 'var(--color-accent)' : 'var(--text-primary)', margin: 0 }}>{j.title}</p>
-									<p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>{candidates.filter(c => c.job_id === j.id).length} applicants</p>
-								</button>
-							))}
+							{jobs.map(j => {
+								const count = allCandidates.filter(c => c.job_id === j.id).length;
+								return (
+									<button key={j.id} onClick={() => setSelectedJob(j)} style={{ textAlign: 'left', padding: '0.75rem', borderRadius: '0.5rem', border: `1px solid ${selectedJob?.id === j.id ? 'var(--color-accent)' : 'var(--border-color)'}`, background: selectedJob?.id === j.id ? 'rgba(6,182,212,0.08)' : 'rgba(255,255,255,0.02)', cursor: 'pointer', transition: 'all 0.2s' }}>
+										<p style={{ fontWeight: 600, fontSize: '0.85rem', color: selectedJob?.id === j.id ? 'var(--color-accent)' : 'var(--text-primary)', margin: 0 }}>{j.title}</p>
+										<p style={{ fontSize: '0.75rem', color: count > 0 ? 'var(--color-accent)' : 'var(--text-muted)', fontWeight: count > 0 ? 700 : 400, margin: '0.2rem 0 0 0' }}>{count} applicant{count !== 1 ? 's' : ''}</p>
+									</button>
+								);
+							})}
 						</div>
 					</div>
 				</aside>
@@ -243,11 +332,14 @@ export default function CompanyDashboard() {
 												<div style={{ flex: 1, minWidth: 0 }}>
 													<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
 														<p style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)', margin: 0 }}>{cand?.name || 'Candidate'}</p>
-														<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+														<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
 															<span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '1.1rem', color: getScoreColor(s.interview_score) }}>{s.interview_score}%</span>
 															<span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: '0.25rem', background: s.interview_score >= 75 ? 'rgba(16,185,129,0.15)' : s.interview_score >= 50 ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)', color: getScoreColor(s.interview_score), fontWeight: 700 }}>
 																{s.interview_score >= 75 ? 'STRONG FIT' : s.interview_score >= 50 ? 'POSSIBLE FIT' : 'NOT A FIT'}
 															</span>
+															{cand && (
+																<Link href={`/candidate/${cand.id}`} className="btn btn-secondary" style={{ fontSize: '0.7rem', padding: '0.2rem 0.6rem' }}>🔍 Quick Audit</Link>
+															)}
 														</div>
 													</div>
 													<p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.35rem 0 0 0', lineHeight: '1.5' }}>{s.fit_summary}</p>
@@ -271,11 +363,24 @@ export default function CompanyDashboard() {
 									<div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
 										{candidates.map(c => {
 											const session = sessions.find(s => s.candidate_id === c.id);
+											const isDemoHighlight = c.github_username === 'riveradevops';
 											return (
-												<div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '0.5rem' }}>
+												<div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: isDemoHighlight ? 'rgba(16,185,129,0.05)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isDemoHighlight ? 'rgba(16,185,129,0.35)' : 'var(--border-color)'}`, borderRadius: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
 													<div>
-														<p style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)', margin: 0 }}>{c.name}</p>
+														<p style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)', margin: 0 }}>
+															{c.name}
+															{isDemoHighlight && <span style={{ marginLeft: '0.5rem', fontSize: '0.65rem', padding: '0.15rem 0.4rem', borderRadius: '0.25rem', background: 'rgba(16,185,129,0.2)', color: '#10b981', fontWeight: 700 }}>DEMO WOW</span>}
+														</p>
 														<p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.15rem 0 0 0' }}>{c.email} · @{c.github_username}</p>
+														<div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.35rem', flexWrap: 'wrap' }}>
+															{c.resume_s3_url && (
+																<a href={fileUrl(c.resume_s3_url)} target="_blank" rel="noreferrer" style={{ fontSize: '0.7rem', color: 'var(--color-accent)', textDecoration: 'none' }}>Resume ↗</a>
+															)}
+															{c.recording_s3_url && (
+																<a href={fileUrl(c.recording_s3_url, c.id)} target="_blank" rel="noreferrer" style={{ fontSize: '0.7rem', color: 'var(--color-accent)', textDecoration: 'none' }}>Interview video ↗</a>
+															)}
+															<Link href={`/candidate/${c.id}`} style={{ fontSize: '0.7rem', color: isDemoHighlight ? '#10b981' : 'var(--text-muted)', textDecoration: 'none', fontWeight: isDemoHighlight ? 700 : 400 }}>{isDemoHighlight ? 'Run GitHub audit →' : 'Audit workspace →'}</Link>
+														</div>
 													</div>
 													<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
 														{session?.status === 'completed' ? (

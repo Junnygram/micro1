@@ -14,6 +14,7 @@ import (
 
 	"backend/pkg/db"
 	"backend/pkg/runner"
+	"backend/pkg/awsbedrock"
 )
 
 type BaselineAgent struct {
@@ -136,6 +137,20 @@ var baselineApiClient = &http.Client{
 }
 
 func (b *BaselineAgent) callLLM(prompt string) (string, error) {
+	br := awsbedrock.GetClient()
+	if awsbedrock.PreferAWS() && br.Ready {
+		text, err := br.Complete(
+			"You are a technical recruiter. Review resumes against job descriptions. Output [SCORE], [CLAIM], [VERDICT], [EXPLANATION] blocks.",
+			prompt,
+			1500,
+		)
+		if err == nil && text != "" {
+			log.Println("[AWS Bedrock] Baseline evaluation via Claude")
+			return text, nil
+		}
+		log.Printf("[AWS Bedrock] Baseline failed: %v — trying Gemini", err)
+	}
+
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=%s", b.APIKey)
 
 	reqBody := GeminiRequest{

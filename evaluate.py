@@ -7,9 +7,11 @@ import json
 import urllib.request
 import urllib.error
 
-WORKSPACE_DIR = "/Users/junioroyewunmi/Desktop/micro1"
-DB_PATH = os.path.join(WORKSPACE_DIR, "data", "zarasourcing.db")
-TRAJECTORIES_DIR = os.path.join(WORKSPACE_DIR, "data", "trajectories")
+WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
+BACKEND_DIR = os.path.join(WORKSPACE_DIR, "backend")
+DB_PATH = os.path.join(BACKEND_DIR, "data", "zarasourcing.db")
+TRAJECTORIES_DIR = os.path.join(BACKEND_DIR, "data", "trajectories")
+DATASET_PATH = os.path.join(BACKEND_DIR, "data", "candidates", "dataset.json")
 
 # Ensure API key is configured
 api_key = os.environ.get("GEMINI_API_KEY")
@@ -28,6 +30,33 @@ if not api_key or len(api_key) < 10:
     print("CRITICAL: GEMINI_API_KEY is not set. Please add it to your environment or .env file.")
     sys.exit(1)
 
+BENCHMARK_JSON_PATH = os.path.join(BACKEND_DIR, "data", "benchmark_results.json")
+
+def validate_api_key():
+    """Quick preflight so we fail fast instead of after a 5-minute run."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+    payload = json.dumps({
+        "contents": [{"role": "user", "parts": [{"text": "Reply with OK"}]}],
+        "generationConfig": {"maxOutputTokens": 8},
+    }).encode("utf-8")
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            if resp.status != 200:
+                print(f"CRITICAL: Gemini API returned HTTP {resp.status}. Check your GEMINI_API_KEY.")
+                sys.exit(1)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        print(f"CRITICAL: Gemini API key validation failed (HTTP {e.code}).")
+        print(body)
+        if "leaked" in body.lower() or e.code == 403:
+            print("\n→ Rotate your key at https://aistudio.google.com/ and update .env + Railway env vars.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"CRITICAL: Could not reach Gemini API: {e}")
+        sys.exit(1)
+    print("Gemini API key validated.")
+
 def kill_port_8080():
     try:
         output = subprocess.check_output("lsof -t -i:8080", shell=True).decode()
@@ -41,7 +70,7 @@ def kill_port_8080():
 def rebuild_backend():
     print("Building Go backend...")
     cmd = "export PATH=$PATH:/usr/local/go/bin:/usr/local/bin && go build -o backend_binary main.go"
-    res = subprocess.call(cmd, shell=True, cwd=os.path.join(WORKSPACE_DIR, "backend"))
+    res = subprocess.call(cmd, shell=True, cwd=BACKEND_DIR)
     if res != 0:
         print("CRITICAL: Failed to build Go backend.")
         sys.exit(1)
@@ -144,7 +173,7 @@ def calculate_metrics(baseline_results, advanced_results):
     print("======================================")
 
     # Load dataset expected results
-    with open(os.path.join(WORKSPACE_DIR, "data", "candidates", "dataset.json")) as f:
+    with open(DATASET_PATH) as f:
         dataset = json.load(f)
 
     # Map dataset by github username
@@ -235,7 +264,47 @@ def calculate_metrics(baseline_results, advanced_results):
         md += f"| {r['name']} | {r['github']} | {r['role']} | `{r['expected']}` | `{r['baseline']}` | `{r['advanced']}` | **{r['score']}** | {r['status']} |\n"
 
     print("\n" + md)
-    return accuracy_baseline, accuracy_advanced, md
+    return accuracy_baseline, accuracy_advanced, md, results_table
+
+def count_completed(results):
+    n = 0
+    for r in results:
+        if r and r.get("candidate", {}).get("status") == "completed":
+            n += 1
+    return n
+
+def save_benchmark_json(baseline_acc, advanced_acc, results_table, baseline_correct, advanced_correct):
+    fraud_targets = [r for r in results_table if r["expected"] != "verified"]
+    payload = {
+        "source": "make evaluate",
+        "evaluated_at": time.strftime("%Y-%m-%d"),
+        "baseline_accuracy_pct": round(baseline_acc, 1),
+        "agent_accuracy_pct": round(advanced_acc, 1),
+        "baseline_correct": baseline_correct,
+        "agent_correct": advanced_correct,
+        "total_cases": len(results_table),
+        "fraud_cases_total": len(fraud_targets),
+        "baseline_fraud_caught": sum(1 for r in fraud_targets if r["baseline"] != "verified"),
+        "agent_fraud_caught": sum(1 for r in fraud_targets if r["advanced"] != "verified"),
+        "cases": [
+            {
+                "name": r["name"],
+                "github": r["github"].lstrip("@"),
+                "role": r["role"],
+                "target": r["expected"],
+                "baseline": r["baseline"],
+                "agent": r["advanced"],
+                "score": r["score"],
+                "correct": "SUCCESS" in r["status"],
+                **({"note": "Path-guessing false positive"} if "MISSED" in r["status"] and r["expected"] == "verified" else {}),
+                **({"highlight": True} if r["github"] == "@riveradevops" else {}),
+            }
+            for r in results_table
+        ],
+    }
+    with open(BENCHMARK_JSON_PATH, "w") as f:
+        json.dump(payload, f, indent=2)
+    print(f"Wrote {BENCHMARK_JSON_PATH}")
 
 def export_trajectories():
     print("\nExporting advanced agent conversation trajectories...")
@@ -321,6 +390,7 @@ def update_readme_and_reproduction(table_md, baseline_acc, advanced_acc):
 
 def main():
     print("Starting ZaraSourcing Evaluation Benchmark Runner...")
+    validate_api_key()
     kill_port_8080()
     rebuild_backend()
     reset_db()
@@ -329,12 +399,13 @@ def main():
     print("Launching Go backend server in background...")
     server_cmd = "./backend_binary"
     env = os.environ.copy()
-    env["AUTO_APPROVE"] = "true" # Ensure agent loop completes without HITL halts during evaluation
+    env["AUTO_APPROVE"] = "true"  # Ensure agent loop completes without HITL halts during evaluation
+    env["WORKSPACE_DIR"] = BACKEND_DIR
     
     server_process = subprocess.Popen(
         server_cmd,
         shell=True,
-        cwd=os.path.join(WORKSPACE_DIR, "backend"),
+        cwd=BACKEND_DIR,
         env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
@@ -354,7 +425,7 @@ def main():
         server_process = subprocess.Popen(
             server_cmd,
             shell=True,
-            cwd=os.path.join(WORKSPACE_DIR, "backend"),
+            cwd=BACKEND_DIR,
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
@@ -365,7 +436,28 @@ def main():
         advanced_results = run_evaluation_for_mode("advanced")
 
         # Compile metrics and table
-        base_acc, adv_acc, table_md = calculate_metrics(baseline_results, advanced_results)
+        base_acc, adv_acc, table_md, results_table = calculate_metrics(baseline_results, advanced_results)
+
+        baseline_done = count_completed(baseline_results)
+        advanced_done = count_completed(advanced_results)
+        print(f"\nCompleted sessions — baseline: {baseline_done}/10, agent: {advanced_done}/10")
+
+        if advanced_done < 8:
+            print("\nWARNING: Too many agent sessions failed. NOT updating README/REPRODUCTION.")
+            print("Fix GEMINI_API_KEY (rotate if leaked) and re-run: make evaluate")
+            print("Canonical numbers remain in backend/data/benchmark_results.json")
+            sys.exit(1)
+
+        baseline_correct = sum(1 for r in results_table if (
+            (r["expected"] == "verified" and r["baseline"] == "verified") or
+            (r["expected"] != "verified" and r["baseline"] != "verified")
+        ))
+        advanced_correct = sum(1 for r in results_table if (
+            (r["expected"] == "verified" and r["advanced"] == "verified") or
+            (r["expected"] != "verified" and r["advanced"] != "verified")
+        ))
+
+        save_benchmark_json(base_acc, adv_acc, results_table, baseline_correct, advanced_correct)
 
         # Export agent footprints
         export_trajectories()

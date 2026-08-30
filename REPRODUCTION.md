@@ -57,6 +57,8 @@ To execute the benchmark:
 make evaluate
 ```
 
+> **API key:** If audits fail with HTTP 403 / "reported as leaked", create a new key at [Google AI Studio](https://aistudio.google.com/) and update `.env` plus Railway env vars before re-running.
+
 ### ⏱️ Approximate Runtime & Cost
 * **Runtime:** ~1.5 to 2.5 minutes (depending on API latency).
 * **Cost:** Less than **$0.03 USD** in token consumption (uses standard Gemini AI studio tokens, and is free under standard rate limits).

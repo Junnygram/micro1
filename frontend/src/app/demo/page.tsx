@@ -3,10 +3,10 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
-export default function AdminRedirect() {
+export default function DemoRedirect() {
 	const router = useRouter();
 	useEffect(() => {
-		router.replace('/');
+		router.replace('/company/login');
 	}, [router]);
 	return null;
 }

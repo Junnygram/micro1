@@ -278,6 +278,30 @@ func (db *DB) migrateSchema() error {
 	demoHash, _ := bcrypt.GenerateFromPassword([]byte("demo123"), bcrypt.DefaultCost)
 	_, _ = db.Exec(`INSERT INTO companies (id, name, slug, email, password_hash, plan) SELECT 'demo_company', 'ZaraSourcing Demo', 'zarasourcing-demo', 'demo@zarasourcing.com', ?, 'enterprise' WHERE NOT EXISTS (SELECT 1 FROM companies WHERE id = 'demo_company')`, string(demoHash))
 
+	// Default AI interview questions for demo jobs (so apply → interview works out of the box)
+	defaultQuestions := map[string][]string{
+		"devops_job": {
+			"Walk me through how you structure a multi-stage Dockerfile for production.",
+			"How do you manage Kubernetes deployments and rollbacks in a live cluster?",
+			"Describe a Terraform workspace you built for infrastructure automation.",
+		},
+		"golang_job": {
+			"How do you use interfaces in Go to keep packages testable?",
+			"Explain SQLite WAL mode and when you would enable it.",
+			"How do you handle concurrency safely in Go services?",
+		},
+	}
+	for jobID, qs := range defaultQuestions {
+		for i, q := range qs {
+			_, _ = db.Exec(`INSERT INTO interview_questions (job_id, question, order_index)
+				SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM interview_questions WHERE job_id = ? AND order_index = ?)`,
+				jobID, q, i, jobID, i)
+		}
+	}
+
+	// Prefer AWS Bedrock Claude for agent when credentials are configured
+	_, _ = db.Exec(`UPDATE sourcing_criteria SET llm_model = 'bedrock' WHERE llm_model = 'gemini' OR llm_model IS NULL OR llm_model = ''`)
+
 	return nil
 }
 
@@ -507,6 +531,34 @@ func (db *DB) ListCandidatesByCompany(companyID, jobID string) ([]Candidate, err
 	return list, nil
 }
 
+// GetCompanyAnalytics returns hiring pipeline stats for the company dashboard.
+func (db *DB) GetCompanyAnalytics(companyID string) (map[string]interface{}, error) {
+	stats := map[string]interface{}{}
+	var total, pending, audited, interviewed int
+	var avgAudit, avgInterview float64
+
+	_ = db.QueryRow(`SELECT COUNT(*) FROM candidates WHERE company_id = ?`, companyID).Scan(&total)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM candidates WHERE company_id = ? AND status = 'pending'`, companyID).Scan(&pending)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM candidates WHERE company_id = ? AND status = 'completed' AND sourcing_score > 0`, companyID).Scan(&audited)
+	_ = db.QueryRow(`
+		SELECT COUNT(DISTINCT s.candidate_id) FROM interview_sessions s
+		INNER JOIN candidates c ON c.id = s.candidate_id
+		WHERE c.company_id = ? AND s.status = 'completed'`, companyID).Scan(&interviewed)
+	_ = db.QueryRow(`SELECT COALESCE(AVG(sourcing_score), 0) FROM candidates WHERE company_id = ? AND sourcing_score > 0`, companyID).Scan(&avgAudit)
+	_ = db.QueryRow(`
+		SELECT COALESCE(AVG(s.interview_score), 0) FROM interview_sessions s
+		INNER JOIN candidates c ON c.id = s.candidate_id
+		WHERE c.company_id = ? AND s.status = 'completed'`, companyID).Scan(&avgInterview)
+
+	stats["total_applicants"] = total
+	stats["pending_review"] = pending
+	stats["audits_completed"] = audited
+	stats["interviews_completed"] = interviewed
+	stats["avg_audit_score"] = int(avgAudit + 0.5)
+	stats["avg_interview_score"] = int(avgInterview + 0.5)
+	return stats, nil
+}
+
 func (db *DB) UpdateCandidateRecording(id string, recordingURL string) error {
 	query := `UPDATE candidates SET recording_s3_url = ?, updated_at = ? WHERE id = ?`
 	_, err := db.Exec(query, recordingURL, time.Now(), id)
@@ -613,6 +665,11 @@ func (db *DB) AddStep(sessionID, stepType, content, metadata string) (*Step, err
 		Metadata:  metadata,
 		CreatedAt: now,
 	}, nil
+}
+
+func (db *DB) ClearSessionSteps(sessionID string) error {
+	_, err := db.Exec(`DELETE FROM steps WHERE session_id = ?`, sessionID)
+	return err
 }
 
 func (db *DB) GetSessionSteps(sessionID string) ([]Step, error) {

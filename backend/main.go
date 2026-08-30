@@ -20,10 +20,21 @@ func main() {
 		workspaceDir = "." // Fallback to current directory (e.g. /app in Docker)
 	}
 	
-	// Load from workspace root
-	envPath := filepath.Join(workspaceDir, ".env")
-	if err := godotenv.Load(envPath); err != nil {
-		log.Printf("Warning: no .env file found at %s, relying on system env", envPath)
+	// Load .env from backend dir or project root (../.env when running via make run)
+	envCandidates := []string{
+		filepath.Join(workspaceDir, ".env"),
+		filepath.Join(workspaceDir, "..", ".env"),
+	}
+	envLoaded := false
+	for _, envPath := range envCandidates {
+		if err := godotenv.Load(envPath); err == nil {
+			log.Printf("Loaded environment from %s", envPath)
+			envLoaded = true
+			break
+		}
+	}
+	if !envLoaded {
+		log.Printf("Warning: no .env file found, relying on system env")
 	}
 
 	apiKey := os.Getenv("GEMINI_API_KEY")
