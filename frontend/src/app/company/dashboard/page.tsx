@@ -266,14 +266,12 @@ export default function CompanyDashboard() {
 					</Link>
 					<div>
 						<h1 style={{ fontSize: '1.5rem' }}>{company.name}</h1>
-						<p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Hiring Dashboard</p>
+						<p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Hiring</p>
 					</div>
 				</div>
 				<div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-					<Link href="/demo" className="btn btn-secondary" style={{ fontSize: '0.75rem' }}>Demo guide</Link>
-					<Link href="/benchmark" className="btn btn-secondary" style={{ fontSize: '0.75rem' }}>Benchmark</Link>
 					<button className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={() => setShowRecruiterChat(!showRecruiterChat)}>
-						{showRecruiterChat ? 'Close AI' : '🤖 Recruiter AI'}
+						{showRecruiterChat ? 'Close copilot' : 'Ask copilot'}
 					</button>
 					<button className="btn btn-secondary" style={{ fontSize: '0.8rem' }} onClick={() => { localStorage.removeItem('company'); router.push('/company/login'); }}>
 						Sign Out
@@ -283,7 +281,7 @@ export default function CompanyDashboard() {
 
 			{showRecruiterChat && (
 				<div className="panel" style={{ padding: '1.25rem', marginBottom: '1rem', border: '1px solid rgba(168,85,247,0.3)' }}>
-					<p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#e9d5ff', textTransform: 'uppercase', marginBottom: '0.75rem' }}>Recruiter AI Copilot</p>
+					<p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#e9d5ff', textTransform: 'uppercase', marginBottom: '0.75rem' }}>Copilot</p>
 					<div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
 						{[
 							'Why is Alex ranked below Emily?',
@@ -436,6 +434,26 @@ export default function CompanyDashboard() {
 									<p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0.15rem 0 0' }}>{stage.label}</p>
 								</div>
 								{i < arr.length - 1 && <span style={{ color: 'var(--text-muted)', fontSize: '1rem' }}>→</span>}
+							</div>
+						))}
+					</div>
+				</div>
+			)}
+
+			{allCandidates.some(c => c.recording_s3_url) && (
+				<div className="panel" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
+					<p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '1rem' }}>Interview recordings</p>
+					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '1rem' }}>
+						{allCandidates.filter(c => c.recording_s3_url).map(c => (
+							<div key={c.id}>
+								<p style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 0.5rem' }}>{c.name}</p>
+								<video
+									src={`${apiBase}/api/recordings/${c.id}?company_id=${company.id}`}
+									controls
+									playsInline
+									preload="metadata"
+									style={{ width: '100%', borderRadius: '0.5rem', background: '#000', maxHeight: 200 }}
+								/>
 							</div>
 						))}
 					</div>

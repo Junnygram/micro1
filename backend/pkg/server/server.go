@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -838,6 +839,32 @@ func (s *Server) uploadToS3(filename string, file io.Reader) (string, error) {
 	return fmt.Sprintf("s3://%s/%s", s.S3Bucket, filename), nil
 }
 
+func (s *Server) streamS3Recording(w http.ResponseWriter, s3URL string) error {
+	rest := strings.TrimPrefix(s3URL, "s3://")
+	slash := strings.Index(rest, "/")
+	if slash < 1 {
+		return fmt.Errorf("invalid s3 url")
+	}
+	bucket, key := rest[:slash], rest[slash+1:]
+	ctx := context.TODO()
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return err
+	}
+	out, err := s3.NewFromConfig(cfg).GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return err
+	}
+	defer out.Body.Close()
+	w.Header().Set("Content-Type", "video/webm")
+	w.Header().Set("Content-Disposition", "inline")
+	_, err = io.Copy(w, out.Body)
+	return err
+}
+
 // handleProctoringEvent: POST a live proctoring event from the frontend
 func (s *Server) handleProctoringEvent(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1033,64 +1060,63 @@ func (s *Server) handleUploadRecording(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, _, err := r.FormFile("video")
+	file, header, err := r.FormFile("video")
 	if err != nil {
 		http.Error(w, "Video file is required: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 
-	// Resolve company slug and job ID for tenant-scoped path
+	data, err := io.ReadAll(file)
+	if err != nil || len(data) == 0 {
+		http.Error(w, "Empty recording", http.StatusBadRequest)
+		return
+	}
+	if header != nil && header.Size > 0 {
+		log.Printf("Interview recording received for %s (%d bytes)", candidateID, len(data))
+	}
+
 	companySlug := "default"
 	jobID := "default_job"
 	cand, candErr := s.DB.GetCandidate(candidateID)
 	if candErr == nil {
 		jobID = cand.JobID
 		if cand.CompanyID != "" {
-			if co, err := s.DB.GetCompanyByID(cand.CompanyID); err == nil {
+			if co, err := s.DB.GetCompanyByID(cand.CompanyID); err == nil && co.Slug != "" {
 				companySlug = co.Slug
+			} else if cand.CompanyID == "demo_company" {
+				companySlug = "demo"
 			}
 		}
 	}
 
-	// Tenant-scoped S3 key: company_slug/job_id/recordings/candidate_interview.webm
+	recordingDir := filepath.Join(s.WorkspaceDir, "data", "recordumes", companySlug, jobID)
+	if err := os.MkdirAll(recordingDir, 0755); err != nil {
+		http.Error(w, "Could not create recording directory", http.StatusInternalServerError)
+		return
+	}
+	destPath := filepath.Join(recordingDir, fmt.Sprintf("%s_interview.webm", candidateID))
+	if err := os.WriteFile(destPath, data, 0644); err != nil {
+		http.Error(w, "Could not save recording", http.StatusInternalServerError)
+		return
+	}
+	localURL := fmt.Sprintf("/recordumes/%s/%s/%s_interview.webm", companySlug, jobID, candidateID)
+	log.Printf("Recording saved locally: %s (%d bytes)", destPath, len(data))
+
 	s3Key := fmt.Sprintf("%s/%s/recordings/%s_interview.webm", companySlug, jobID, candidateID)
-
-	// Upload directly to AWS S3
-	s3URL, uploadErr := s.uploadToS3(s3Key, file)
-	if uploadErr == nil {
-		log.Printf("Successfully uploaded recording to S3: %s", s3URL)
+	if s3URL, uploadErr := s.uploadToS3(s3Key, bytes.NewReader(data)); uploadErr == nil {
+		log.Printf("Recording also uploaded to S3: %s", s3URL)
 	} else {
-		log.Printf("S3 recording upload failed: %v. Saving locally.", uploadErr)
-
-		if seeker, ok := file.(io.ReadSeeker); ok {
-			_, _ = seeker.Seek(0, io.SeekStart)
-		}
-
-		// Save locally in tenant-scoped sandbox
-		recordingDir := filepath.Join(s.WorkspaceDir, "data", "recordumes", companySlug, jobID)
-		os.MkdirAll(recordingDir, 0755)
-		destPath := filepath.Join(recordingDir, fmt.Sprintf("%s_interview.webm", candidateID))
-
-		dst, err := os.Create(destPath)
-		if err == nil {
-			defer dst.Close()
-			if _, err := io.Copy(dst, file); err == nil {
-				s3URL = fmt.Sprintf("/recordumes/%s/%s/%s_interview.webm", companySlug, jobID, candidateID)
-				log.Printf("Recording saved locally: %s", destPath)
-			}
-		}
+		log.Printf("S3 recording upload skipped: %v", uploadErr)
 	}
 
-	// Update candidate record in DB
-	err = s.DB.UpdateCandidateRecording(candidateID, s3URL)
-	if err != nil {
+	if err := s.DB.UpdateCandidateRecording(candidateID, localURL); err != nil {
 		http.Error(w, "Failed to update candidate recording URL: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = io.WriteString(w, `{"success":true}`)
+	_, _ = io.WriteString(w, `{"success":true,"bytes":`+strconv.Itoa(len(data))+`}`)
 }
 
 // handleSecureRecording: company-authenticated streaming of interview recordings
@@ -1127,13 +1153,15 @@ func (s *Server) handleSecureRecording(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve local file path from stored URL
 	recordingPath := cand.RecordingS3URL
+	if strings.HasPrefix(recordingPath, "s3://") {
+		if err := s.streamS3Recording(w, recordingPath); err != nil {
+			http.Error(w, "Recording not available: "+err.Error(), http.StatusNotFound)
+		}
+		return
+	}
 	if strings.HasPrefix(recordingPath, "/recordumes/") {
 		recordingPath = filepath.Join(s.WorkspaceDir, "data", strings.TrimPrefix(recordingPath, "/"))
-	} else if strings.HasPrefix(recordingPath, "s3://") {
-		http.Error(w, "Recording stored in S3 — configure direct S3 access", http.StatusNotImplemented)
-		return
 	} else {
 		recordingPath = filepath.Join(s.WorkspaceDir, "data", "recordumes", filepath.Base(recordingPath))
 	}
@@ -1724,12 +1752,12 @@ func (s *Server) handleDemoInterview(w http.ResponseWriter, r *http.Request) {
 	jobID := demoInterviewJobID
 	candidateID := uuid.New().String()
 	shortID := candidateID[:8]
-	name := "Demo Candidate"
-	email := fmt.Sprintf("demo-interview+%s@zarasourcing.local", shortID)
+	name := "Jordan Hale"
+	email := fmt.Sprintf("jordan.hale+%s@candidate.zarasourcing.com", shortID)
 	github := fmt.Sprintf("demo_%s", shortID)
-	role := "Voice + AR Demo (2 questions)"
+	role := "DevOps Engineer"
 
-	if _, err := s.DB.CreateCandidate(candidateID, name, email, role, github, jobID, "", ""); err != nil {
+	if _, err := s.DB.CreateCandidate(candidateID, name, email, role, github, jobID, "demo_company", ""); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

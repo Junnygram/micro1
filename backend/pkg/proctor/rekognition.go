@@ -199,29 +199,62 @@ func buildAnalysis(labels []rtypes.Label, faces []rtypes.FaceDetail) *Analysis {
 		}
 	}
 
-	switch {
-	case len(a.Flagged) > 0:
-		top := a.Flagged[0]
-		a.Verdict = "device_detected"
-		a.EventType = "phone_detected"
-		a.Details = fmt.Sprintf("Amazon Rekognition detected %q in frame (%.1f%% confidence) — unauthorized material during proctored interview", top.Label, top.Confidence)
-	case a.FaceCount == 0:
-		a.Verdict = "no_face"
-		a.EventType = "look_away"
-		a.Details = "Amazon Rekognition found no face in frame — candidate left the camera"
-	case a.FaceCount > 1:
-		a.Verdict = "multiple_faces"
-		a.EventType = "multiple_faces"
-		a.Details = fmt.Sprintf("Amazon Rekognition detected %d faces — possible coaching or second person present", a.FaceCount)
-	case absF(a.YawDegrees) > MaxYawDegrees || absF(a.PitchDegrees) > MaxPitchDegrees:
-		a.Verdict = "gaze_away"
-		a.EventType = "look_away"
-		a.Details = fmt.Sprintf("Amazon Rekognition head pose off-screen (yaw %.0f°, pitch %.0f°)", a.YawDegrees, a.PitchDegrees)
-	default:
-		a.Details = fmt.Sprintf("Amazon Rekognition verified 1 face on camera (yaw %.0f°, pitch %.0f°)", a.YawDegrees, a.PitchDegrees)
+	for _, rule := range verdictRules {
+		if rule(a) {
+			return a
+		}
 	}
-
+	a.Details = fmt.Sprintf("Amazon Rekognition verified 1 face on camera (yaw %.0f°, pitch %.0f°)", a.YawDegrees, a.PitchDegrees)
 	return a
+}
+
+// verdictRules run in order; first match wins. Append a new func to extend proctoring.
+var verdictRules = []func(*Analysis) bool{
+	ruleDeviceOrNotes,
+	ruleNoFace,
+	ruleSecondPerson,
+	ruleGazeAway,
+}
+
+func ruleDeviceOrNotes(a *Analysis) bool {
+	if len(a.Flagged) == 0 {
+		return false
+	}
+	top := a.Flagged[0]
+	a.Verdict = "device_detected"
+	a.EventType = "phone_detected"
+	a.Details = fmt.Sprintf("Amazon Rekognition detected %q in frame (%.1f%% confidence) — unauthorized material during proctored interview", top.Label, top.Confidence)
+	return true
+}
+
+func ruleNoFace(a *Analysis) bool {
+	if a.FaceCount != 0 {
+		return false
+	}
+	a.Verdict = "no_face"
+	a.EventType = "look_away"
+	a.Details = "Amazon Rekognition found no face in frame — candidate left the camera"
+	return true
+}
+
+func ruleSecondPerson(a *Analysis) bool {
+	if a.FaceCount <= 1 {
+		return false
+	}
+	a.Verdict = "multiple_faces"
+	a.EventType = "multiple_faces"
+	a.Details = fmt.Sprintf("Amazon Rekognition detected %d faces — possible coaching or second person present", a.FaceCount)
+	return true
+}
+
+func ruleGazeAway(a *Analysis) bool {
+	if absF(a.YawDegrees) <= MaxYawDegrees && absF(a.PitchDegrees) <= MaxPitchDegrees {
+		return false
+	}
+	a.Verdict = "gaze_away"
+	a.EventType = "look_away"
+	a.Details = fmt.Sprintf("Amazon Rekognition head pose off-screen (yaw %.0f°, pitch %.0f°)", a.YawDegrees, a.PitchDegrees)
+	return true
 }
 
 func absF(v float64) float64 {
