@@ -17,24 +17,23 @@ make setup
 make run
 ```
 
-Open **http://localhost:3000/demo** — this is your Loom teleprompter.
+Open **http://localhost:3000/company/login** — demo: `demo@zarasourcing.com` / `demo123`
 
 | URL | Purpose |
 |---|---|
-| `/demo` | 5-step judge walkthrough (start here for video) |
 | `/benchmark` | 60% vs 70% numbers + fraud detection table |
-| `/company/login` | Company dashboard — `demo@zarasourcing.com` / `demo123` |
-| `/apply/general` | Candidate apply → private interview link |
+| `/company/login` | Company dashboard |
+| `/apply/devops_job` | Candidate apply → private interview link |
 
 ## 3. Loom recording script (~5 min)
 
-Follow `/demo` step by step:
+Follow this order:
 
 1. **Benchmark** (30s) — `/benchmark` — "60% baseline, 70% agent, fraud 0/4 → 4/4"
-2. **Company login** (30s) — one-click demo login on company page
-3. **Apply flow** (optional 60s) — show private interview link + AR proctoring
-4. **Wow moment** (90s) — dashboard → Alex Rivera → **Run GitHub Audit** → terminal citations
-5. **Hot take** (30s) — benchmark page changelog: `list_repo_files` fix
+2. **Company login** (30s) — `demo@zarasourcing.com` / `demo123`
+3. **Apply flow** (optional 60s) — show private interview link + voice interview
+4. **Wow moment** (90s) — dashboard → Alex Rivera → **Run GitHub Audit**
+5. **Hot take** (30s) — benchmark page: `list_repo_files` fix
 
 **Best audit demos:** Alex Rivera (inflated resume), Raj Patel (broken code), Olaleye Oyewunmi (honest, verified).
 
@@ -54,7 +53,7 @@ If the key is invalid, evaluate stops immediately and keeps the last verified nu
 - [ ] [REPRODUCTION.md](./REPRODUCTION.md) — `make evaluate`
 - [ ] Loom video (link in submission form)
 - [ ] Trajectories in [backend/data/trajectories/](./backend/data/trajectories/)
-- [ ] Live URL: `[your-railway]/demo`
+- [ ] Live URL: `[your-railway]/company/login`
 
 ## Troubleshooting
 

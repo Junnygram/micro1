@@ -1,8 +1,8 @@
 # ZaraSourcing — AI-Powered Technical Hiring Platform
 
-> **Built for the micro1 Hackathon** · Go + Next.js · Gemini AI · AWS Polly · MediaPipe AR
+> **Built for the micro1 Hackathon** · Go + Next.js · AWS Bedrock Claude · AWS Polly · MediaPipe AR
 
-ZaraSourcing is a full-stack SaaS hiring platform that replaces manual technical screening with an end-to-end AI pipeline. Companies post jobs, candidates apply and take a live AI voice interview, and Gemini scores every answer — producing a ranked leaderboard of who is the best fit for the role and exactly why.
+ZaraSourcing is a full-stack SaaS hiring platform that replaces manual technical screening with an end-to-end AI pipeline. Companies post jobs, candidates apply and take a live AI voice interview, and the platform scores every answer — producing a ranked leaderboard with cited GitHub audit evidence.
 
 ---
 
@@ -13,7 +13,7 @@ Resume inflation is at an all-time high. A candidate claims *"Expert in Go concu
 **ZaraSourcing eliminates this entirely:**
 - Audits GitHub code against resume claims automatically
 - Conducts a live AI voice interview — no human interviewer needed
-- Scores every spoken answer with Gemini and ranks all candidates
+- Scores every spoken answer with **AWS Bedrock Claude** (Gemini fallback) and ranks candidates
 - Shows the hiring team exactly who is a fit and why, in seconds
 
 ---
@@ -23,15 +23,17 @@ Resume inflation is at an all-time high. A candidate claims *"Expert in Go concu
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    ZaraSourcing Platform                 │
-├──────────────┬──────────────────────┬────────────────────┤
-│  Super Admin │     Company          │     Candidate      │
-│  /admin      │  /company/dashboard  │  /apply/[jobId]    │
-│              │  /company/login      │  /interview/[token]│
-│  Platform    │  Create jobs         │  Apply for role    │
-│  analytics   │  Set AI questions    │  Take AI interview │
-│  All companies│  Copy apply link    │  Get scored live   │
-│  Total stats │  View leaderboard    │  See AI feedback   │
-└──────────────┴──────────────────────┴────────────────────┘
+├──────────────────────┬──────────────────────────────────┤
+│     Company          │           Candidate              │
+│  /company/dashboard  │  /apply/[jobId]                  │
+│  /company/login      │  /interview/[token]              │
+│  /benchmark          │  Apply → private interview link  │
+│  Create jobs         │  Hands-free AI voice interview   │
+│  Set AI questions    │  Live score + feedback           │
+│  Copy apply link     │                                  │
+│  View leaderboard    │                                  │
+│  Run GitHub audits   │                                  │
+└──────────────────────┴──────────────────────────────────┘
 ```
 
 ---
@@ -43,8 +45,8 @@ Resume inflation is at an all-time high. A candidate claims *"Expert in Go concu
 | **Backend** | Go 1.21 · `net/http` · REST API |
 | **Database** | SQLite with WAL mode (`modernc.org/sqlite`) |
 | **Frontend** | Next.js 14 · TypeScript · Vanilla CSS |
-| **AI Scoring** | Google Gemini 1.5 Flash (interview scoring + fit analysis) |
-| **AI Voice** | AWS Polly (Joanna voice — neural TTS for interview questions) |
+| **AI Agent & Scoring** | AWS Bedrock Claude (primary) · Gemini 2.0 Flash (fallback) |
+| **AI Voice** | AWS Polly (neural TTS) · browser `SpeechSynthesis` fallback |
 | **Speech-to-Text** | Web Speech API (`SpeechRecognition`) — live transcription |
 | **Face Tracking** | MediaPipe FaceLandmarker (WebAssembly) — AR overlay + gaze detection |
 | **Video Recording** | MediaRecorder API — session archiving |
@@ -72,11 +74,14 @@ Open `.env` and fill in:
 
 ```env
 GEMINI_API_KEY=your_gemini_key_here
+LLM_PROVIDER=bedrock
 AWS_ACCESS_KEY_ID=your_aws_key
 AWS_SECRET_ACCESS_KEY=your_aws_secret
 AWS_S3_BUCKET=your-bucket-name
 AWS_S3_REGION=us-east-1
+AWS_REGION=us-east-1
 PORT=8080
+NEXT_PUBLIC_API_URL=http://localhost:8080
 ```
 
 ### 2. Run the Full Stack
@@ -139,74 +144,61 @@ http://localhost:3000/company/login
 - Open it in Chrome or Edge (required for Web Speech API)
 - Read the pre-interview checklist and click **Start Interview →**
 
-**3. The Interview Experience**
+**3. The Interview Experience (hands-free)**
 - Allow microphone and camera access when prompted
-- The AI (AWS Polly) speaks each question out loud
-- After the question finishes, the mic **automatically activates** — just speak your answer naturally
-- Your spoken words appear as live text on screen in real time
-- Click **Next Question →** when done, or wait for the 30-second auto-advance
-- After the final question, click **Submit Interview ✓**
+- The AI speaks each question (AWS Polly, or browser voice fallback)
+- **Just speak your answer** — live transcription appears on screen
+- After **~15 seconds of silence**, the AI asks: *"Are you done? Should I continue to the next question?"*
+- Say **"yes"** or stay silent ~10s more to advance automatically — no button required
+- Use **Chrome or Edge** (required for speech recognition)
 
 **4. Get Your Score**
-- Gemini AI scores all your answers (0–100%)
-- You see your score immediately with written feedback: strengths, gaps, and overall fit assessment
+- Bedrock/Gemini scores all your answers (0–100%)
+- You see your score immediately with written feedback
 - The hiring team sees your ranking on their dashboard
 
+**5. View agent benchmark (judges)**
+```
+http://localhost:3000/benchmark
+```
+Shows 60% baseline vs 70% agent accuracy and fraud detection (0/4 → 4/4).
+
 ---
 
-### As a Super Admin
+### GitHub audit workspace (recruiters)
 
-```
-http://localhost:3000/admin
-```
+From the company dashboard, open any candidate → **Run GitHub Audit** to see the agent terminal, claim citations, and proctoring timeline.
 
-View platform-wide analytics:
-- Total companies registered
-- Total job openings created
-- Total candidates who applied
-- Total completed AI interviews
-- Full list of all companies with plan tier and join date
+**Best demo candidate:** Alex Rivera (`@riveradevops`) — inflated DevOps resume caught with evidence.
 
----
+Demo login: `demo@zarasourcing.com` / `demo123`
 
 ## 🤖 AI Features Deep Dive
 
 ### AI Voice Interview
-- AWS Polly (neural `Joanna` voice) speaks each question
-- Estimated speech duration is calculated (`phrase.length × 55ms`) so the mic activates automatically right after the AI finishes speaking
-- No button to press — the interview flows like a real conversation
-- Fallback: browser `SpeechSynthesis` if AWS Polly is unavailable
+- AWS Polly speaks questions; fallback to browser `SpeechSynthesis`
+- Web Speech API transcribes answers live (Chrome/Edge)
+- **Hands-free flow:** silence detection → spoken prompt → auto-advance to next question
+- Optional manual **Skip to next** if needed
 
-### Gemini Interview Scoring
-When a candidate submits, all Q&A pairs are sent to Gemini with this prompt structure:
+### Interview Scoring
+When a candidate finishes, answers are sent to **AWS Bedrock Claude** (or Gemini if Bedrock is unavailable):
 ```
-You are an expert technical interviewer for the role: "[role]".
-Score this candidate's interview answers from 0-100 and give a fit summary.
-Answers: [Q1: answer, Q2: answer, ...]
 Respond in JSON: { score, fit_summary, strengths, gaps }
 ```
-The score, fit summary, strengths, and gaps are stored and displayed on the company leaderboard.
+Score and fit summary appear on the company leaderboard.
 
 ### AR Face Tracking (Proctoring)
-- MediaPipe FaceLandmarker runs locally in WebAssembly (no server calls)
-- 478 facial landmarks tracked per frame at 30fps
-- AR canvas overlay renders:
-  - **Face mesh dots** — green when looking at screen, red when deviating
-  - **Bounding box** — snaps around the face, color-coded by gaze status
-  - **Gaze direction arrow** — shows where the head is pointing
-  - **Status label** — `LOCKED ON` / `GAZE DEVIATION` stamped above the face
-- Gaze deviation events are logged to the database with timestamp and duration
-- Tab-switch events are also captured via `window.blur`
+- MediaPipe FaceLandmarker runs in WebAssembly
+- Face mesh + bounding box overlay; `LOCKED ON` / `GAZE DEVIATION` labels
+- Gaze deviation and tab-switch events logged to the database
 
 ### GitHub Code Auditing (ZaraSourcing Agent)
-The original agentic audit pipeline is still available for companies that want deep code verification:
-- Clones candidate's public GitHub repositories
-- Greps source files for claimed technologies
-- Verifies resume claims against actual code (WAL mode, concurrency patterns, etc.)
-- Flags exaggerations and failures with evidence citations
-- Accessible via the legacy `/candidate/[id]` audit workspace
-
----
+Tool-calling agent verifies resume claims against code evidence:
+- `list_github_repos`, `list_repo_files`, `get_repo_file`, proctoring logs
+- Evaluated on **10 seeded profiles** with ground-truth labels (`make evaluate`)
+- **70% accuracy** vs **60%** text-only baseline; **4/4 fraud cases** caught
+- Live audit workspace: `/candidate/[id]` (demo data seeded on first run)
 
 ## 📁 Project Structure
 
@@ -214,30 +206,33 @@ The original agentic audit pipeline is still available for companies that want d
 micro1/
 ├── backend/
 │   ├── pkg/
-│   │   ├── agent/          # ZaraSourcing GitHub audit agent + baseline
-│   │   ├── db/             # SQLite schema, migrations, all DB methods
-│   │   ├── runner/         # Benchmark runner + dataset loader
-│   │   └── server/         # All REST API handlers
+│   │   ├── agent/          # GitHub audit agent + baseline
+│   │   ├── awsbedrock/     # Bedrock Claude client
+│   │   ├── trajectory/     # Trajectory markdown parser
+│   │   ├── db/             # SQLite schema + queries
+│   │   ├── runner/         # Benchmark dataset loader
+│   │   └── server/         # REST API handlers
 │   ├── data/
-│   │   ├── candidates/     # dataset.json — 10 seeded candidate profiles
+│   │   ├── candidates/     # dataset.json — 10 benchmark profiles
+│   │   ├── benchmark_results.json
 │   │   ├── resumes/        # Uploaded resume files
-│   │   ├── recordumes/     # Recorded interview videos
-│   │   └── trajectories/   # Agent reasoning traces (markdown)
+│   │   ├── recordumes/     # Interview recordings (local)
+│   │   └── trajectories/   # Agent reasoning traces
 │   └── main.go
 ├── frontend/
 │   └── src/app/
 │       ├── page.tsx                    # Landing page
-│       ├── company/
-│       │   ├── login/page.tsx          # Company sign in / register
-│       │   └── dashboard/page.tsx      # Job management + leaderboard
-│       ├── apply/[jobId]/page.tsx      # Candidate application form
-│       ├── interview/[token]/page.tsx  # AI audio interview room
-│       ├── admin/page.tsx              # Super admin analytics
-│       ├── candidate/[id]/page.tsx     # GitHub audit workspace (legacy)
-│       ├── admindashboard/page.tsx     # Legacy recruiter dashboard
-│       └── troubleshooting/page.tsx    # System diagnostics
-├── traces/                 # AI agent execution traces (JSONL)
-├── .env.example
+│       ├── benchmark/page.tsx          # 60% vs 70% benchmark UI
+│       ├── company/login/page.tsx      # Company auth
+│       ├── company/dashboard/page.tsx  # Jobs + leaderboard + pipeline
+│       ├── apply/[jobId]/page.tsx      # Candidate application
+│       ├── interview/[token]/page.tsx  # AI voice interview room
+│       └── candidate/[id]/page.tsx     # GitHub audit workspace
+├── SUBMISSION.md           # Hackathon submission checklist
+├── QUICKSTART.md           # Loom demo script
+├── DEPLOY.md               # Railway deploy guide
+├── CHANGELOG.md            # Agent improvement log
+├── evaluate.py             # Benchmark runner
 ├── Makefile
 └── docker-compose.yml
 ```
@@ -287,18 +282,24 @@ micro1/
 | `POST` | `/api/interview/questions` | Set questions for a job |
 | `POST` | `/api/interview/start` | Create interview session, returns token |
 | `GET` | `/api/interview/[token]` | Get session + candidate + questions |
-| `POST` | `/api/interview/complete` | Score all answers via Gemini, save results |
+| `POST` | `/api/interview/complete` | Score answers via Bedrock/Gemini |
+
+### Agent & Benchmark
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/benchmark` | Canonical benchmark JSON |
+| `GET` | `/api/trajectory/{github}` | Saved agent trajectory |
+| `POST` | `/api/sessions` | Run GitHub audit agent |
 
 ### Voice
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/speak?text=` | AWS Polly TTS — returns MP3 audio stream |
+| `GET` | `/api/speak?text=` | AWS Polly TTS — returns MP3 |
 
-### Admin
+### Health
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/admin/stats` | Platform-wide counts |
-| `GET` | `/api/admin/companies` | All registered companies |
+| `GET` | `/api/health` | Backend ping (`{"status":"ok"}`) |
 
 ---
 
@@ -310,6 +311,9 @@ The GitHub audit agent was evaluated against 10 seeded candidate profiles with k
 |---|---|
 | Baseline (text-only keyword match) | **60.0%** |
 | ZaraSourcing (code-grounded audit) | **70.0%** |
+| Fraud detection (4 cases) | Baseline **0/4** → Agent **4/4** |
+
+See live numbers: `http://localhost:3000/benchmark`
 
 <!-- BENCHMARK_START -->
 ### Vetting Benchmark Metrics
@@ -330,19 +334,6 @@ The GitHub audit agent was evaluated against 10 seeded candidate profiles with k
 | Sarah Jenkins | @sarahml | Data Scientist & ML Engineer | `exaggerated` | `verified` | `failed` | **60%** | ✅ SUCCESS |
 
 <!-- BENCHMARK_END -->
-
-| Candidate | Role | Target | ZaraSourcing | Result |
-|---|---|---|---|---|
-| Jessica Taylor | Cloud Infrastructure Engineer | `verified` | `verified` | ✅ |
-| Carlos Gomez | Next.js Tailwind Developer | `verified` | `verified` | ✅ |
-| Olaleye Oyewunmi | Senior Full-Stack (Go/Next.js) | `verified` | `exaggerated` | ❌ |
-| Emily Chen | Senior Frontend Developer | `verified` | `exaggerated` | ❌ |
-| Alex Rivera | DevOps & SRE Engineer | `exaggerated` | `exaggerated` | ✅ |
-| Michael Chang | Full-Stack Node.js Developer | `verified` | `exaggerated` | ❌ |
-| Raj Patel | Golang Backend Developer | `failed` | `failed` | ✅ |
-| David Kim | Security Engineer | `failed` | `failed` | ✅ |
-| Amara Okafor | Python Backend Developer | `failed` | `failed` | ✅ |
-| Sarah Jenkins | Data Scientist & ML Engineer | `exaggerated` | `failed` | ✅ |
 
 Run the benchmark yourself:
 ```bash
@@ -365,17 +356,28 @@ Starts both the Go backend and Next.js frontend in containers.
 
 | Variable | Required | Description |
 |---|---|---|
-| `GEMINI_API_KEY` | ✅ | Google Gemini API key for interview scoring |
-| `AWS_ACCESS_KEY_ID` | Optional | AWS credentials for Polly TTS + S3 |
-| `AWS_SECRET_ACCESS_KEY` | Optional | AWS secret |
+| `GEMINI_API_KEY` | Fallback | Google Gemini key (interview scoring + agent fallback) |
+| `LLM_PROVIDER` | Optional | `bedrock` (default when AWS set) or `gemini` |
+| `AWS_ACCESS_KEY_ID` | Recommended | Bedrock Claude + Polly TTS + S3 |
+| `AWS_SECRET_ACCESS_KEY` | Recommended | AWS secret |
 | `AWS_S3_BUCKET` | Optional | S3 bucket for resume/recording storage |
-| `AWS_S3_REGION` | Optional | AWS region (default: `us-east-1`) |
+| `AWS_S3_REGION` / `AWS_REGION` | Optional | AWS region (default: `us-east-1`) |
 | `PORT` | Optional | Backend port (default: `8080`) |
-| `NEXT_PUBLIC_API_URL` | Optional | Frontend API base URL (default: `http://localhost:8080`) |
+| `NEXT_PUBLIC_API_URL` | Deploy | Frontend → backend URL (set at build time on Railway) |
 
-> **Without AWS credentials:** Polly falls back to browser `SpeechSynthesis`, S3 uploads fall back to local disk storage. The core AI interview and scoring still works fully.
+> **Without AWS:** Polly falls back to browser speech, agent uses Gemini, files save locally. Core interview + seeded audit demo still works.
 
 ---
+
+## 📦 Hackathon submission
+
+See **[SUBMISSION.md](./SUBMISSION.md)** for the judge checklist, Loom script, and deliverables.
+
+**5-minute demo path:**
+1. `/benchmark` — 60% vs 70%, fraud 0/4 → 4/4
+2. `/company/login` — `demo@zarasourcing.com` / `demo123`
+3. Dashboard → Alex Rivera → **Run GitHub Audit**
+4. `/apply/devops_job` — optional voice interview snippet
 
 ## 👥 Built By
 
