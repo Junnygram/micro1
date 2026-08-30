@@ -51,7 +51,7 @@ Open tabs:
 > 1. A **company creates a job** and sets AI interview questions on the dashboard.
 > 2. **Candidates apply** with resume and GitHub — resumes go to **S3** (or local storage in dev).
 > 3. Our **audit agent** — powered by **AWS Bedrock** and Gemini — reads their mock GitHub repos, lists files, reads code, and **cites evidence** for every resume claim.
-> 4. The candidate gets a private link and is **interviewed by Zara** — AI voice via Polly/Bedrock, with **AR proctoring**: gaze tracking, tab-switch detection, multi-face and phone alerts via MediaPipe.
+> 4. The candidate gets a private link and is **interviewed by Zara** — AI voice via Polly/Bedrock, with **AR proctoring**: MediaPipe draws the live face mesh, and **Amazon Rekognition** makes the integrity calls server-side — phone or notes in frame, second person, head pose off-screen.
 > 5. The **recruiter sees a ranked dashboard** — audit score, interview score, shortlist. The agent **recommends**; the **recruiter decides**.
 >
 > Because of time, I won't run a full live Zara interview in this video. I'll do a **short UI walkthrough**, then show the **benchmark** that proves the audit agent works."
@@ -96,21 +96,27 @@ Open tabs:
 - [ ] Show claims list + **Replay saved audit** (10 sec)
 - [ ] **Do NOT** click "Run GitHub Audit" on demo candidates
 
-### 3d. Voice interview + AR proctoring (45 sec)
+### 3d. Voice interview + AR proctoring (~2 min)
 
 **Screen:** `/demo` → Step 6 → **Launch demo interview**
 
 **Say:**
 
-> "After applying, candidates get a private link to a **Zara-style voice interview**. In production this uses **AWS Polly** for voice and **Bedrock** for scoring — with **AR proctoring** on the webcam: gaze lock, tab-switch detection, multi-face and phone alerts via MediaPipe."
+> "Candidates also get a **Zara-style voice interview** — AI asks questions via **AWS Polly**, you speak answers, and proctoring runs on **Amazon Rekognition**. Every few seconds the browser ships a webcam frame to our backend, which calls Rekognition **DetectLabels** and **DetectFaces**. So when I hold up a phone, that's not a pixel trick — that's AWS returning `Mobile Phone` with a confidence score, and the panel shows the label, the confidence, and the round-trip latency."
 
-- [ ] Click **Launch demo interview** on `/demo` (or quick link **Voice + AR demo**)
-- [ ] Use **Chrome**, allow **camera + microphone**
-- [ ] Click **Start Interview →**
-- [ ] Point at right panel: **LOCKED ON**, face mesh, **REC**, tab-switch counter
-- [ ] Optional: look away → **GAZE DEVIATION**; switch tab once → counter increments
+**Do this live (~2 min):**
 
-**Skip if short on time:** mention interview exists; don't run full 10-minute session.
+1. `/demo` → **Launch demo interview** (Chrome, allow camera + mic)
+2. **Start 2-question demo** → hear AI voice ask question 1
+3. Point at the **Amazon Rekognition** panel: `● LIVE` + latency, `Verdict OK`, `Faces in frame 1`, head pose
+4. Speak a short answer (~10 sec) → click **Done — next question**
+5. On question 2 → **hold your phone up to the camera** and wait ~4 sec
+6. Point at the panel: verdict flips to **DEVICE_DETECTED**, "Flagged objects → Mobile Phone 9x.x%", and the overlay label on the video
+7. Put the phone down → verdict returns to **OK**; then **switch tabs once** to bump the tab counter
+
+**Proof line to say:** "That flag is now in the candidate's audit log — the recruiter sees it on the candidate page, and it came from AWS, not from the browser."
+
+**Skip if short on time:** say the above in one sentence; show a screenshot only.
 
 ---
 
@@ -197,7 +203,8 @@ Candidate → applies (resume → S3, GitHub username)
      ↓
 Audit agent → Bedrock/Gemini + GitHub tools → cited claims
      ↓
-Zara interview → voice AI + AR proctoring (MediaPipe)
+Zara interview → Polly voice + MediaPipe AR overlay
+                 + Amazon Rekognition integrity verdicts
      ↓
 Recruiter dashboard → scores, shortlist, human decision
      ↓
@@ -227,6 +234,8 @@ Benchmark → make evaluate (baseline vs agent, 10 cases)
 | Dashboard empty | "Seeded on deploy — fraud report still proves the agent" |
 | No full Zara interview in video | "Use `/demo` → **Launch demo interview** — Chrome + camera/mic for AR proctoring" |
 | Benchmark mismatch | "Run `make evaluate` — same JSON file this page reads" |
+| Rekognition panel shows NOT CONFIGURED | "Needs AWS creds + `rekognition:DetectLabels`/`DetectFaces` IAM — MediaPipe overlay still runs" |
+| Judge asks "is the proctoring real?" | "`make test-proctor` for the rules, `make verify-proctor FRAMES=...` to run your own photo through AWS, and `/api/health` reports the provider" |
 
 ---
 

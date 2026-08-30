@@ -7,6 +7,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.33.1
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.59.1
 	github.com/aws/aws-sdk-go-v2/service/polly v1.62.1
+	github.com/aws/aws-sdk-go-v2/service/rekognition v1.56.1
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.109.1
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1

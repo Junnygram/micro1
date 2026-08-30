@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,11 +11,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"backend/pkg/agent"
 	"backend/pkg/awsbedrock"
 	"backend/pkg/benchmark"
 	"backend/pkg/db"
+	"backend/pkg/proctor"
 	"backend/pkg/runner"
 	"backend/pkg/trajectory"
 
@@ -326,6 +329,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/jobs", s.handleJobs)
 	mux.HandleFunc("/api/apply", s.handleApply)
 	mux.HandleFunc("/api/proctoring", s.handleProctoringEvent)
+	mux.HandleFunc("/api/proctoring/analyze", s.handleProctoringAnalyze)
 	mux.HandleFunc("/api/candidates/recording", s.handleUploadRecording)
 	mux.HandleFunc("/api/speak", s.handleSpeak)
 	mux.HandleFunc("/api/interview/questions", s.handleInterviewQuestions)
@@ -847,6 +851,72 @@ func (s *Server) handleProctoringEvent(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.WriteString(w, `{"success":true}`)
 }
 
+// handleProctoringAnalyze runs a webcam frame through Amazon Rekognition and
+// persists any integrity finding. The verdict comes from AWS, not the browser.
+func (s *Server) handleProctoringAnalyze(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		CandidateID string `json:"candidate_id"`
+		Timestamp   string `json:"timestamp"`
+		ImageBase64 string `json:"image_base64"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	client := proctor.GetClient()
+	if !client.Ready {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"provider": "unavailable",
+			"verdict":  "skipped",
+			"details":  "Amazon Rekognition not configured — set AWS credentials to enable server-side proctoring",
+		})
+		return
+	}
+
+	payload := req.ImageBase64
+	if idx := strings.Index(payload, ","); idx != -1 && strings.HasPrefix(payload, "data:") {
+		payload = payload[idx+1:]
+	}
+	frame, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil || len(frame) == 0 {
+		http.Error(w, "image_base64 must be a base64-encoded JPEG frame", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+
+	analysis, err := client.Analyze(ctx, frame)
+	if err != nil {
+		log.Printf("[Rekognition] analyze failed: %v", err)
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"provider": "aws_rekognition",
+			"verdict":  "error",
+			"details":  err.Error(),
+		})
+		return
+	}
+
+	if analysis.EventType != "" && req.CandidateID != "" {
+		ts := req.Timestamp
+		if ts == "" {
+			ts = time.Now().Format("15:04:05")
+		}
+		_ = s.DB.SaveProctoringEvent(req.CandidateID, ts, analysis.EventType, 0, analysis.Details)
+	}
+
+	_ = json.NewEncoder(w).Encode(analysis)
+}
+
 func (s *Server) reCalculateScores() error {
 	criteria, err := s.DB.GetCriteria()
 	if err != nil {
@@ -1190,6 +1260,23 @@ func fallbackInterviewQuestions(jobID string) []db.InterviewQuestion {
 	return qs
 }
 
+// demoInterviewJobID is the dedicated 2-question proctored demo (Launch from /demo).
+const demoInterviewJobID = "demo_interview"
+
+func demoInterviewQuestions() []db.InterviewQuestion {
+	return []db.InterviewQuestion{
+		{JobID: demoInterviewJobID, Question: "In thirty seconds, what is Docker and why do teams use containers?", OrderIndex: 0},
+		{JobID: demoInterviewJobID, Question: "How would you debug a web service that suddenly started returning 500 errors?", OrderIndex: 1},
+	}
+}
+
+func questionsForSession(jobID string, dbQs []db.InterviewQuestion) []db.InterviewQuestion {
+	if jobID == demoInterviewJobID {
+		return demoInterviewQuestions()
+	}
+	return interviewQuestionsForJob(dbQs, jobID)
+}
+
 func interviewQuestionsForJob(dbQs []db.InterviewQuestion, jobID string) []db.InterviewQuestion {
 	if len(dbQs) > 0 {
 		return dbQs
@@ -1253,7 +1340,7 @@ func (s *Server) handleInterviewStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	qs, _ := s.DB.GetInterviewQuestions(req.JobID)
-	qs = interviewQuestionsForJob(qs, req.JobID)
+	qs = questionsForSession(req.JobID, qs)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"session": session, "questions": qs})
@@ -1297,9 +1384,10 @@ func (s *Server) handleInterviewSession(w http.ResponseWriter, r *http.Request) 
 	}
 	cand, _ := s.DB.GetCandidate(session.CandidateID)
 	qs, _ := s.DB.GetInterviewQuestions(session.JobID)
-	qs = interviewQuestionsForJob(qs, session.JobID)
+	qs = questionsForSession(session.JobID, qs)
+	demoMode := session.JobID == demoInterviewJobID
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"session": session, "candidate": cand, "questions": qs})
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"session": session, "candidate": cand, "questions": qs, "demo_mode": demoMode})
 }
 
 // handleInterviewComplete: score all answers via AWS Bedrock (Claude) or Gemini fallback
@@ -1616,13 +1704,13 @@ func (s *Server) handleDemoInterview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	jobID := "devops_job"
+	jobID := demoInterviewJobID
 	candidateID := uuid.New().String()
 	shortID := candidateID[:8]
 	name := "Demo Candidate"
 	email := fmt.Sprintf("demo-interview+%s@zarasourcing.local", shortID)
 	github := fmt.Sprintf("demo_%s", shortID)
-	role := "DevOps & Cloud SRE"
+	role := "Voice + AR Demo (2 questions)"
 
 	if _, err := s.DB.CreateCandidate(candidateID, name, email, role, github, jobID, "", ""); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1636,17 +1724,17 @@ func (s *Server) handleDemoInterview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	qs, _ := s.DB.GetInterviewQuestions(jobID)
-	qs = interviewQuestionsForJob(qs, jobID)
+	qs := demoInterviewQuestions()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"token":    token,
-		"path":     "/interview/" + token,
-		"session":  session,
-		"questions": qs,
-		"candidate": map[string]string{"id": candidateID, "name": name, "role": role},
+		"token":      token,
+		"path":       "/interview/" + token,
+		"demo_mode":  true,
+		"session":    session,
+		"questions":  qs,
+		"candidate":  map[string]string{"id": candidateID, "name": name, "role": role},
 	})
 }
 
@@ -1711,7 +1799,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "ok",
+		"proctoring": map[string]interface{}{
+			"provider": "aws_rekognition",
+			"ready":    proctor.GetClient().Ready,
+			"checks":   []string{"phone_detected", "multiple_faces", "look_away", "no_face"},
+		},
+	})
 }
 
 func (s *Server) scoreInterviewAnswers(jobTitle, answerText string) (int, string) {

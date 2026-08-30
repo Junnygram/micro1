@@ -94,8 +94,8 @@ const STEPS = [
 	},
 	{
 		num: 6,
-		title: 'Voice interview + AR proctoring',
-		desc: 'One-click demo interview room — AI voice (Polly/Bedrock), gaze tracking, multi-face and phone alerts via MediaPipe, tab-switch monitoring. Use Chrome, allow camera + mic.',
+		title: 'Voice interview + AR proctoring (2 questions)',
+		desc: 'One click → hear AI voice ask 2 questions, speak answers, see the live face mesh. Integrity verdicts come from Amazon Rekognition server-side: hold up a phone and it returns the label with its confidence score. Also flags a second person, head pose off-screen, and tab switches. ~2 min.',
 		cta: 'Launch demo interview',
 		launchInterview: true,
 		highlight: true,
@@ -224,7 +224,7 @@ export default function DemoGuidePage() {
 					) : step.external ? (
 						<a href={step.href} className="btn btn-primary" target="_blank" rel="noreferrer">{step.cta} →</a>
 					) : (
-						<Link href={step.href} className="btn btn-primary">{step.cta} →</Link>
+						<Link href={step.href || '/'} className="btn btn-primary">{step.cta} →</Link>
 					)}
 					{active < STEPS.length - 1 && (
 						<button className="btn btn-secondary" onClick={() => setActive(active + 1)}>Next step →</button>

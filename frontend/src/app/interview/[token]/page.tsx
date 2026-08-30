@@ -4,8 +4,22 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 
 interface Question { id: number; question: string; order_index: number; }
-interface Session { id: string; candidate_id: string; job_id: string; token: string; status: string; interview_score: number; fit_summary: string; }
+interface Session { id: string; candidate_id: string; job_id: string; token: string; status: string; interview_score: number; fit_summary: string; created_at?: string; }
 interface Candidate { id: string; name: string; role: string; }
+
+interface Detection { label: string; confidence: number; }
+interface RekognitionVerdict {
+	provider: string;
+	verdict: string;
+	event_type?: string;
+	details: string;
+	face_count?: number;
+	yaw_degrees?: number;
+	pitch_degrees?: number;
+	labels?: Detection[];
+	flagged?: Detection[];
+	latency_ms?: number;
+}
 
 type Phase = 'loading' | 'intro' | 'interview' | 'submitting' | 'done' | 'error';
 
@@ -27,10 +41,16 @@ export default function InterviewPage() {
 	const [faceStatus, setFaceStatus] = useState<'no_face' | 'locked' | 'deviation' | 'multiple_faces' | 'phone_detected'>('no_face');
 	const [tabSwitchCount, setTabSwitchCount] = useState(0);
 	const [arAlerts, setArAlerts] = useState({ multipleFaces: 0, phone: 0 });
+	const [rekognition, setRekognition] = useState<RekognitionVerdict | null>(null);
 	const lookAwayStartRef = useRef<number | null>(null);
 	const lastProctorPostRef = useRef<number>(0);
 	const lastMultiFacePostRef = useRef<number>(0);
-	const lastPhonePostRef = useRef<number>(0);
+
+	// Amazon Rekognition frame analysis
+	const frameCanvasRef = useRef<HTMLCanvasElement | null>(null);
+	const rekogInFlightRef = useRef(false);
+	const rekognitionRef = useRef<RekognitionVerdict | null>(null);
+	const candidateRef = useRef<Candidate | null>(null);
 
 	// Webcam + AR
 	const videoRef = useRef<HTMLVideoElement>(null);
@@ -60,10 +80,11 @@ export default function InterviewPage() {
 	// Intro phase: track if greeting has been spoken
 	const greetingDoneRef = useRef(false);
 	const [cameraReady, setCameraReady] = useState(false);
+	const [isDemoMode, setIsDemoMode] = useState(false);
 
-	const SILENCE_BEFORE_PROMPT_MS = 15000;
-	const SILENCE_AUTO_ADVANCE_MS = 10000;
-	const MAX_ANSWER_MS = 120000;
+	const silenceBeforePromptMs = isDemoMode ? 8000 : 15000;
+	const maxAnswerMs = isDemoMode ? 45000 : 120000;
+	const silenceAutoAdvanceMs = isDemoMode ? 6000 : 10000;
 
 	const apiBase = getApiBase();
 
@@ -97,7 +118,7 @@ export default function InterviewPage() {
 		if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
 		silenceTimerRef.current = setTimeout(() => {
 			promptContinueToNext();
-		}, SILENCE_BEFORE_PROMPT_MS);
+		}, silenceBeforePromptMs);
 	};
 
 	const saveCurrentAnswer = () => {
@@ -245,7 +266,7 @@ export default function InterviewPage() {
 		confirmTimerRef.current = setTimeout(() => {
 			if (listenModeRef.current !== 'confirm') return;
 			finishConfirmAdvance();
-		}, SILENCE_AUTO_ADVANCE_MS);
+		}, silenceAutoAdvanceMs);
 	};
 
 	const startAnswerListening = (mode: 'intro' | 'question', questionIdx = 0) => {
@@ -301,7 +322,7 @@ export default function InterviewPage() {
 		listenTimerRef.current = setTimeout(() => {
 			if (listenModeRef.current === 'intro') advanceFromIntro();
 			else advanceAfterQuestion(questionIdx);
-		}, MAX_ANSWER_MS);
+		}, maxAnswerMs);
 	};
 
 	useEffect(() => { loadSession(); }, [token]);
@@ -316,6 +337,18 @@ export default function InterviewPage() {
 		window.addEventListener('blur', onBlur);
 		return () => window.removeEventListener('blur', onBlur);
 	}, [phase, candidate]);
+
+	useEffect(() => { rekognitionRef.current = rekognition; }, [rekognition]);
+	useEffect(() => { candidateRef.current = candidate; }, [candidate]);
+
+	// Server-side integrity sweep: ship a frame to Amazon Rekognition on a fixed cadence
+	useEffect(() => {
+		if (phase !== 'interview' || !cameraReady) return;
+		const intervalMs = isDemoMode ? 3500 : 7000;
+		runRekognitionCheck();
+		const id = setInterval(runRekognitionCheck, intervalMs);
+		return () => clearInterval(id);
+	}, [phase, cameraReady, isDemoMode]);
 
 	const postProctorEvent = async (eventType: string, duration: number, details: string) => {
 		if (!candidate) return;
@@ -348,6 +381,7 @@ export default function InterviewPage() {
 			setSession(data.session);
 			setCandidate(data.candidate);
 			setQuestions(data.questions || []);
+			setIsDemoMode(data.demo_mode === true || data.session?.job_id === 'demo_interview');
 			if (data.session.status === 'completed') {
 				setFinalScore(data.session.interview_score);
 				setFitSummary(data.session.fit_summary);
@@ -364,7 +398,17 @@ export default function InterviewPage() {
 	const startInterview = async () => {
 		setPhase('interview');
 		await startCamera();
-		speakGreeting();
+		if (isDemoMode) {
+			greetingDoneRef.current = true;
+			setIsSpeaking(true);
+			const intro = `Hi! This is your two question voice interview with AR proctoring. You'll hear each question, then speak your answer. Question 1:`;
+			await speak(intro, () => {
+				setIsSpeaking(false);
+				speakQuestion(0);
+			});
+		} else {
+			speakGreeting();
+		}
 	};
 
 	// Speak warm greeting + "tell us about yourself" before Q1
@@ -447,27 +491,50 @@ export default function InterviewPage() {
 		}
 	};
 
-	const detectPhoneNearFace = (ctx: CanvasRenderingContext2D, w: number, h: number, bx: number, by: number, bw: number, bh: number) => {
-		const zones = [
-			{ x: Math.min(Math.max(0, bx + bw - 20), w - 90), y: Math.min(Math.max(0, by + bh * 0.35), h - 130), width: 80, height: 120 },
-			{ x: Math.max(0, bx - 70), y: Math.min(Math.max(0, by + bh * 0.4), h - 110), width: 65, height: 100 },
-		];
-		for (const z of zones) {
-			if (z.x + z.width > w || z.y + z.height > h) continue;
-			const img = ctx.getImageData(z.x, z.y, z.width, z.height);
-			let sum = 0;
-			let sumSq = 0;
-			const n = img.data.length / 4;
-			for (let i = 0; i < img.data.length; i += 4) {
-				const lum = 0.299 * img.data[i] + 0.587 * img.data[i + 1] + 0.114 * img.data[i + 2];
-				sum += lum;
-				sumSq += lum * lum;
+	// Capture the current webcam frame as a JPEG data URL for server-side analysis.
+	const captureFrame = (): string | null => {
+		const video = videoRef.current;
+		if (!video || video.readyState < 2 || !video.videoWidth) return null;
+		const grab = frameCanvasRef.current || document.createElement('canvas');
+		frameCanvasRef.current = grab;
+		grab.width = 480;
+		grab.height = Math.round((video.videoHeight / video.videoWidth) * 480) || 360;
+		const ctx = grab.getContext('2d');
+		if (!ctx) return null;
+		ctx.drawImage(video, 0, 0, grab.width, grab.height);
+		return grab.toDataURL('image/jpeg', 0.72);
+	};
+
+	// Amazon Rekognition is the authority on integrity findings. The browser only
+	// ships frames; DetectLabels/DetectFaces decide whether a session is clean.
+	const runRekognitionCheck = async () => {
+		if (!activeRef.current || rekogInFlightRef.current) return;
+		const frame = captureFrame();
+		if (!frame) return;
+		rekogInFlightRef.current = true;
+		try {
+			const res = await fetch(`${apiBase}/api/proctoring/analyze`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					candidate_id: candidateRef.current?.id || '',
+					timestamp: new Date().toLocaleTimeString(),
+					image_base64: frame,
+				}),
+			});
+			if (!res.ok) return;
+			const data: RekognitionVerdict = await res.json();
+			setRekognition(data);
+			if (data.verdict === 'device_detected') {
+				setFaceStatus('phone_detected');
+				setArAlerts(a => ({ ...a, phone: a.phone + 1 }));
+			} else if (data.verdict === 'multiple_faces') {
+				setFaceStatus('multiple_faces');
+				setArAlerts(a => ({ ...a, multipleFaces: a.multipleFaces + 1 }));
 			}
-			const mean = sum / n;
-			const variance = sumSq / n - mean * mean;
-			if (mean > 70 && mean < 230 && variance < 900) return true;
+		} catch { /* transient network — next tick retries */ } finally {
+			rekogInFlightRef.current = false;
 		}
-		return false;
 	};
 
 	const runARLoop = () => {
@@ -543,19 +610,16 @@ export default function InterviewPage() {
 						ctx.font = 'bold 10px monospace';
 						ctx.fillText(isLocked ? 'LOCKED ON' : faceCount > 1 ? 'MULTIPLE FACES' : 'GAZE DEVIATION', bx + 4, by - 9);
 
-						if (faceCount === 1 && detectPhoneNearFace(ctx, w, h, bx, by, bw, bh)) {
-							setFaceStatus('phone_detected');
-							const now = Date.now();
-							if (now - lastPhonePostRef.current > 8000) {
-								lastPhonePostRef.current = now;
-								setArAlerts(a => ({ ...a, phone: a.phone + 1 }));
-								postProctorEvent('phone_detected', 0, 'Rectangular high-contrast object detected near face — possible mobile device');
-							}
-							ctx.fillStyle = 'rgba(245,158,11,0.9)';
-							ctx.fillRect(bx, by + bh + 4, 140, 18);
+						// Overlay the most recent Amazon Rekognition finding
+						const verdict = rekognitionRef.current;
+						if (verdict && verdict.verdict === 'device_detected' && verdict.flagged?.length) {
+							const top = verdict.flagged[0];
+							const caption = `${top.label.toUpperCase()} ${top.confidence.toFixed(0)}%`;
+							ctx.fillStyle = 'rgba(245,158,11,0.92)';
+							ctx.fillRect(bx, by + bh + 4, Math.max(150, caption.length * 7 + 16), 18);
 							ctx.fillStyle = '#fff';
 							ctx.font = 'bold 10px monospace';
-							ctx.fillText('PHONE DETECTED', bx + 4, by + bh + 16);
+							ctx.fillText(caption, bx + 4, by + bh + 16);
 						}
 					} else {
 						setFaceStatus('no_face');
@@ -601,7 +665,9 @@ export default function InterviewPage() {
 		clearListenTimers();
 		stopRecognition();
 
-		const text = `Question ${idx + 1}: ${questions[idx].question}`;
+		const text = isDemoMode
+			? questions[idx].question
+			: `Question ${idx + 1}: ${questions[idx].question}`;
 		await speak(text, () => { setIsSpeaking(false); startListening(idx); });
 	};
 
@@ -672,28 +738,38 @@ export default function InterviewPage() {
 			<div className="panel" style={{ maxWidth: '560px', width: '100%', padding: '2.5rem', textAlign: 'center' }}>
 				<div className="logo-icon" style={{ margin: '0 auto 1.5rem auto', background: 'linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%)', width: '3rem', height: '3rem', fontSize: '1rem' }}>ZS</div>
 				<h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
-					Hi {candidate?.name?.split(' ')[0] || 'there'} 👋
+					{isDemoMode ? 'Voice interview + AR demo' : `Hi ${candidate?.name?.split(' ')[0] || 'there'} 👋`}
 				</h2>
 				<p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '2rem', lineHeight: '1.6' }}>
-					You&apos;re about to take an AI-powered voice interview for <strong style={{ color: 'var(--text-primary)' }}>{candidate?.role}</strong>.
-					The AI will greet you, ask you to introduce yourself, then ask {questions.length} technical question{questions.length !== 1 ? 's' : ''}. Just speak naturally.
+					{isDemoMode ? (
+						<>Two quick questions — <strong style={{ color: 'var(--text-primary)' }}>AI voice asks, you speak answers</strong>. Webcam shows face tracking, gaze lock, and cheating alerts. Use <strong>Chrome</strong> with camera + mic.</>
+					) : (
+						<>You&apos;re about to take an AI-powered voice interview for <strong style={{ color: 'var(--text-primary)' }}>{candidate?.role}</strong>. The AI will greet you, ask you to introduce yourself, then ask {questions.length} technical question{questions.length !== 1 ? 's' : ''}. Just speak naturally.</>
+					)}
 				</p>
 				<div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '2rem', textAlign: 'left', padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '0.5rem', border: '1px solid var(--border-color)' }}>
-					{[
+					{(isDemoMode ? [
+						'Chrome or Edge — allow camera + microphone',
+						'You will HEAR the AI voice ask 2 questions',
+						'Speak your answer — live transcription on the left',
+						'Face mesh + LOCKED ON on the right',
+						'Demo: hold up a phone → Amazon Rekognition flags it',
+						'~2 minutes total',
+					] : [
 						'Use Chrome or Edge for best voice recognition',
 						'Allow microphone & camera access when prompted',
 						'Speak clearly — answers are transcribed live',
 						'Pause when done — the AI will ask before moving on',
 						'Say "yes" or stay silent to continue to the next question',
 						`Intro + ${questions.length || 3} technical questions — ~10 minutes`
-					].map((tip, i) => (
+					]).map((tip, i) => (
 						<div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
 							<span style={{ color: 'var(--color-accent)' }}>✓</span> {tip}
 						</div>
 					))}
 				</div>
 				<button className="btn btn-primary" style={{ width: '100%', padding: '1rem', fontSize: '1rem', fontWeight: 700 }} onClick={startInterview}>
-					Start Interview →
+					{isDemoMode ? 'Start 2-question demo →' : 'Start Interview →'}
 				</button>
 			</div>
 		</div>
@@ -743,13 +819,19 @@ export default function InterviewPage() {
 					)}
 				</div>
 
-				{greetingDoneRef.current && (
+				{isDemoMode && currentIdx === 1 && greetingDoneRef.current && (
+					<div style={{ padding: '0.75rem 1rem', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: '0.5rem', fontSize: '0.8rem', color: '#fbbf24' }}>
+						Demo tip: hold your phone up to the camera for ~4 seconds. Amazon Rekognition will return a <strong>Mobile Phone</strong> label with its confidence — watch the verdict panel on the right.
+					</div>
+				)}
+
+				{(greetingDoneRef.current || isDemoMode) && (
 					<div style={{ display: 'flex', gap: '0.75rem' }}>
 						<button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => speakQuestion(currentIdx)} disabled={isSpeaking}>
 							🔁 Repeat Question
 						</button>
-						<button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.85rem' }} onClick={saveAndNext} disabled={isSpeaking}>
-							Skip to next →
+						<button className="btn btn-primary" style={{ flex: 1, fontSize: '0.85rem' }} onClick={saveAndNext} disabled={isSpeaking}>
+							{isDemoMode ? 'Done — next question →' : 'Skip to next →'}
 						</button>
 					</div>
 				)}
@@ -769,7 +851,7 @@ export default function InterviewPage() {
 						)}
 					</div>
 					<div style={{ position: 'absolute', bottom: '8px', left: '50%', transform: 'translateX(-50%)', background: faceStatus === 'locked' ? 'rgba(16,185,129,0.85)' : faceStatus === 'deviation' ? 'rgba(239,68,68,0.85)' : faceStatus === 'multiple_faces' ? 'rgba(168,85,247,0.9)' : faceStatus === 'phone_detected' ? 'rgba(245,158,11,0.9)' : 'rgba(100,116,139,0.85)', padding: '0.2rem 0.65rem', borderRadius: '0.25rem', fontSize: '0.65rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#fff' }}>
-						{faceStatus === 'locked' ? 'LOCKED ON' : faceStatus === 'deviation' ? 'GAZE DEVIATION' : faceStatus === 'multiple_faces' ? 'MULTIPLE FACES' : faceStatus === 'phone_detected' ? 'PHONE DETECTED' : 'ALIGN FACE'}
+						{faceStatus === 'locked' ? 'LOCKED ON' : faceStatus === 'deviation' ? 'GAZE DEVIATION' : faceStatus === 'multiple_faces' ? 'MULTIPLE FACES' : faceStatus === 'phone_detected' ? 'INTEGRITY ALERT' : 'ALIGN FACE'}
 					</div>
 				</div>
 
@@ -787,7 +869,7 @@ export default function InterviewPage() {
 						<div style={{ display: 'flex', justifyContent: 'space-between' }}>
 							<span style={{ color: 'var(--text-secondary)' }}>Face Tracking</span>
 							<span style={{ color: faceStatus === 'locked' ? '#10b981' : faceStatus === 'deviation' ? '#ef4444' : faceStatus === 'multiple_faces' ? '#a855f7' : faceStatus === 'phone_detected' ? '#f59e0b' : 'var(--text-muted)' }}>
-								{faceStatus === 'locked' ? '● Locked' : faceStatus === 'deviation' ? '● Deviation' : faceStatus === 'multiple_faces' ? '● Multi-face' : faceStatus === 'phone_detected' ? '● Phone' : '○ Waiting'}
+								{faceStatus === 'locked' ? '● Locked' : faceStatus === 'deviation' ? '● Deviation' : faceStatus === 'multiple_faces' ? '● Multi-face' : faceStatus === 'phone_detected' ? '● Integrity' : '○ Waiting'}
 							</span>
 						</div>
 						{(arAlerts.multipleFaces > 0 || arAlerts.phone > 0) && (
@@ -796,7 +878,7 @@ export default function InterviewPage() {
 								<span style={{ color: '#f59e0b', fontSize: '0.75rem' }}>
 									{arAlerts.multipleFaces > 0 && `${arAlerts.multipleFaces} multi-face`}
 									{arAlerts.multipleFaces > 0 && arAlerts.phone > 0 && ' · '}
-									{arAlerts.phone > 0 && `${arAlerts.phone} phone`}
+									{arAlerts.phone > 0 && `${arAlerts.phone} integrity`}
 								</span>
 							</div>
 						)}
@@ -807,9 +889,50 @@ export default function InterviewPage() {
 					</div>
 				</div>
 
+				<div style={{ padding: '1rem', background: 'rgba(255,153,0,0.04)', border: '1px solid rgba(255,153,0,0.2)', borderRadius: '0.5rem' }}>
+					<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+						<p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#ff9900', textTransform: 'uppercase', margin: 0, letterSpacing: '0.03em' }}>Amazon Rekognition</p>
+						<span style={{ fontSize: '0.6rem', fontFamily: 'var(--font-mono)', color: rekognition?.provider === 'aws_rekognition' ? '#10b981' : 'var(--text-muted)' }}>
+							{rekognition?.provider === 'aws_rekognition' ? `● LIVE ${rekognition.latency_ms ?? 0}ms` : rekognition ? '○ NOT CONFIGURED' : '○ CONNECTING'}
+						</span>
+					</div>
+					{rekognition?.provider === 'aws_rekognition' ? (
+						<div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.75rem' }}>
+							<div style={{ display: 'flex', justifyContent: 'space-between' }}>
+								<span style={{ color: 'var(--text-secondary)' }}>Verdict</span>
+								<span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: rekognition.verdict === 'ok' ? '#10b981' : '#f59e0b' }}>{rekognition.verdict.toUpperCase()}</span>
+							</div>
+							<div style={{ display: 'flex', justifyContent: 'space-between' }}>
+								<span style={{ color: 'var(--text-secondary)' }}>Faces in frame</span>
+								<span style={{ fontFamily: 'var(--font-mono)', color: rekognition.face_count === 1 ? '#10b981' : '#f59e0b' }}>{rekognition.face_count ?? 0}</span>
+							</div>
+							<div style={{ display: 'flex', justifyContent: 'space-between' }}>
+								<span style={{ color: 'var(--text-secondary)' }}>Head pose</span>
+								<span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>yaw {Math.round(rekognition.yaw_degrees ?? 0)}° · pitch {Math.round(rekognition.pitch_degrees ?? 0)}°</span>
+							</div>
+							{rekognition.flagged && rekognition.flagged.length > 0 && (
+								<div style={{ marginTop: '0.35rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)' }}>
+									<p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', margin: '0 0 0.3rem 0' }}>Flagged objects</p>
+									{rekognition.flagged.slice(0, 3).map(f => (
+										<div key={f.label} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: '0.7rem' }}>
+											<span style={{ color: '#f59e0b' }}>{f.label}</span>
+											<span style={{ color: '#f59e0b' }}>{f.confidence.toFixed(1)}%</span>
+										</div>
+									))}
+								</div>
+							)}
+							<p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.35rem 0 0 0', lineHeight: 1.4 }}>{rekognition.details}</p>
+						</div>
+					) : (
+						<p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>
+							{rekognition?.details || 'Sending webcam frames to AWS for DetectLabels + DetectFaces analysis…'}
+						</p>
+					)}
+				</div>
+
 				<div style={{ padding: '0.75rem 1rem', background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.15)', borderRadius: '0.5rem' }}>
 					<p style={{ fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600, margin: 0 }}>⚠ Proctored Session</p>
-					<p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0.25rem 0 0 0' }}>Gaze, multi-face, phone, and tab-switch monitoring active. Video is being recorded.</p>
+					<p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0.25rem 0 0 0' }}>Gaze, multi-face, tab-switch, and object detection active. Findings are produced server-side by Amazon Rekognition and written to the candidate audit log. Video is being recorded.</p>
 				</div>
 			</div>
 		</div>

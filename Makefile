@@ -1,4 +1,4 @@
-.PHONY: setup setup-backend setup-frontend build-backend run-backend run-frontend test-backend evaluate run clean fresh stop
+.PHONY: setup setup-backend setup-frontend build-backend run-backend run-frontend test-backend test-proctor verify-proctor evaluate run clean fresh stop
 
 # Path configuration
 export PATH := $(PATH):/usr/local/go/bin:/usr/local/bin
@@ -23,6 +23,15 @@ run-frontend:
 
 test-backend:
 	cd backend && go test -v ./pkg/...
+
+# Offline: assert the Rekognition verdict rules (no AWS calls, no keys needed)
+test-proctor:
+	cd backend && go test -v ./pkg/proctor/...
+
+# Online: run real frames through Amazon Rekognition. Needs AWS credentials.
+#   make verify-proctor FRAMES="frame_clean.jpg frame_phone.jpg"
+verify-proctor:
+	cd backend && go run ./cmd/proctorcheck $(FRAMES)
 
 evaluate:
 	python3 evaluate.py

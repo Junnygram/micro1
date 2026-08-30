@@ -26,6 +26,8 @@ github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.1 h1:ZMbtPZZQRca+3+
 github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.1/go.mod h1:YAGWQdCYlVCoqrzvfv3RLxO6zKwti7gsAULOGWPLYv4=
 github.com/aws/aws-sdk-go-v2/service/polly v1.62.1 h1:ERbu7fi1JgOwEbcY7Wc4QRvJu4UfFE5MxSZFpuQ0ByM=
 github.com/aws/aws-sdk-go-v2/service/polly v1.62.1/go.mod h1:GB/PygCvy4rLFm1Qpnqa+B89cZzyxq6AJ/uvyGAOeVE=
+github.com/aws/aws-sdk-go-v2/service/rekognition v1.56.1 h1:6S/KCCi4ZurnLnVheDIl9l7ktVJ+hGpIvUcEJuxRgm4=
+github.com/aws/aws-sdk-go-v2/service/rekognition v1.56.1/go.mod h1:TiE+Ij7VXOJ1kV2QChRCPjt9juIR858tX5pPnqGYm64=
 github.com/aws/aws-sdk-go-v2/service/s3 v1.109.1 h1:kVpzaDBzOdRtOftmiSpTdQbWVqRg0kONLXijktiwXnk=
 github.com/aws/aws-sdk-go-v2/service/s3 v1.109.1/go.mod h1:CUr46sCpGAg/rHaclRyhJX0LJAmH73uWSJPPSaMUrSk=
 github.com/aws/aws-sdk-go-v2/service/signin v1.7.1 h1:mdMtSVKdQ3+mzBh+l0ogrFYZVQUCg6pJZOirA2ARsYE=
