@@ -22,20 +22,26 @@ import (
 // Thresholds are exported so the reproducibility test can assert on them.
 const (
 	MinLabelConfidence = 60.0
+	MinPhoneConfidence = 45.0
 	MinFaceConfidence  = 90.0
 	MaxYawDegrees      = 42.0
 	MaxPitchDegrees    = 38.0
 )
 
-// deviceLabels are Rekognition labels that indicate a second screen or phone in frame.
+// deviceLabels are Rekognition names for a phone or tablet in frame.
+// Laptop / monitor / screen are the candidate's own machine — do not flag those.
 var deviceLabels = map[string]bool{
-	"mobile phone":    true,
-	"cell phone":      true,
-	"phone":           true,
-	"telephone":       true,
-	"iphone":          true,
-	"smartphone":      true,
-	"tablet computer": true,
+	"mobile phone":        true,
+	"cell phone":          true,
+	"phone":               true,
+	"telephone":           true,
+	"iphone":              true,
+	"smartphone":          true,
+	"cellular telephone":  true,
+	"tablet computer":     true,
+	"tablet":              true,
+	"handset":             true,
+	"portable computer":   true,
 }
 
 // referenceLabels indicate notes or printed material held up during the interview.
@@ -133,8 +139,8 @@ func (c *Client) Analyze(ctx context.Context, jpeg []byte) (*Analysis, error) {
 
 	labelsOut, err := c.API.DetectLabels(ctx, &rekognition.DetectLabelsInput{
 		Image:         image,
-		MaxLabels:     aws.Int32(30),
-		MinConfidence: aws.Float32(MinLabelConfidence),
+		MaxLabels:     aws.Int32(50),
+		MinConfidence: aws.Float32(40),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("detect labels: %w", err)
@@ -159,14 +165,36 @@ func buildAnalysis(labels []rtypes.Label, faces []rtypes.FaceDetail) *Analysis {
 	a := &Analysis{Provider: "aws_rekognition", Verdict: "ok"}
 
 	for _, l := range labels {
-		if l.Name == nil || l.Confidence == nil {
+		names := labelNames(l)
+		if l.Confidence == nil {
 			continue
 		}
-		det := Detection{Label: *l.Name, Confidence: float64(*l.Confidence)}
+		conf := float64(*l.Confidence)
+		display := ""
+		if l.Name != nil {
+			display = *l.Name
+		} else if len(names) > 0 {
+			display = names[0]
+		}
+		if display == "" {
+			continue
+		}
+		det := Detection{Label: display, Confidence: conf}
 		a.Labels = append(a.Labels, det)
-		key := strings.ToLower(det.Label)
-		if deviceLabels[key] || referenceLabels[key] {
-			a.Flagged = append(a.Flagged, det)
+		for _, key := range names {
+			if ignoreComputerLabel(key) {
+				continue
+			}
+			phone := deviceLabels[key] || strings.Contains(key, "iphone") || (strings.Contains(key, "phone") && !strings.Contains(key, "headphone") && !strings.Contains(key, "microphone"))
+			notes := referenceLabels[key]
+			if phone && conf >= MinPhoneConfidence {
+				a.Flagged = append(a.Flagged, det)
+				break
+			}
+			if notes && conf >= MinLabelConfidence {
+				a.Flagged = append(a.Flagged, det)
+				break
+			}
 		}
 	}
 	sort.SliceStable(a.Flagged, func(i, j int) bool {
@@ -256,4 +284,31 @@ func absF(v float64) float64 {
 		return -v
 	}
 	return v
+}
+
+func labelNames(l rtypes.Label) []string {
+	var names []string
+	if l.Name != nil {
+		names = append(names, strings.ToLower(*l.Name))
+	}
+	for _, a := range l.Aliases {
+		if a.Name != nil {
+			names = append(names, strings.ToLower(*a.Name))
+		}
+	}
+	return names
+}
+
+func ignoreComputerLabel(key string) bool {
+	return strings.Contains(key, "laptop") ||
+		strings.Contains(key, "monitor") ||
+		key == "screen" ||
+		key == "computer" ||
+		key == "pc" ||
+		key == "desktop computer" ||
+		key == "computer hardware" ||
+		key == "keyboard" ||
+		key == "mouse" ||
+		key == "television" ||
+		key == "tv"
 }

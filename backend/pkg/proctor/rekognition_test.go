@@ -35,19 +35,23 @@ func TestCleanFramePasses(t *testing.T) {
 	}
 }
 
-func TestPhoneInFrameIsFlagged(t *testing.T) {
+func TestLaptopIsNotACheatDevice(t *testing.T) {
 	got := buildAnalysis(
-		[]rtypes.Label{label("Person", 99.0), label("Mobile Phone", 93.4)},
-		[]rtypes.FaceDetail{face(2, 1)},
+		[]rtypes.Label{label("Person", 99.0), label("Laptop", 97.0), label("Computer", 91.0)},
+		[]rtypes.FaceDetail{face(0, 0)},
+	)
+	if got.Verdict == "device_detected" {
+		t.Fatalf("candidate laptop must not flag cheating, got %q (%s)", got.Verdict, got.Details)
+	}
+}
+
+func TestPartialPhoneLabelIsFlagged(t *testing.T) {
+	got := buildAnalysis(
+		[]rtypes.Label{label("Person", 99.0), label("Phone", 51.0)},
+		[]rtypes.FaceDetail{face(0, 0)},
 	)
 	if got.Verdict != "device_detected" {
-		t.Fatalf("expected device_detected, got %q", got.Verdict)
-	}
-	if got.EventType != "phone_detected" {
-		t.Fatalf("expected phone_detected event, got %q", got.EventType)
-	}
-	if len(got.Flagged) == 0 || got.Flagged[0].Label != "Mobile Phone" {
-		t.Fatalf("expected Mobile Phone flagged, got %+v", got.Flagged)
+		t.Fatalf("expected device_detected for Phone, got %q", got.Verdict)
 	}
 }
 

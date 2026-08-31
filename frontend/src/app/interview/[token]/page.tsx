@@ -24,6 +24,8 @@ interface RekognitionVerdict {
 
 type Phase = 'loading' | 'intro' | 'interview' | 'submitting' | 'done' | 'error';
 
+const GREETING = "Hello, my name is Zara Sourcing, and I'll be conducting your interview. Can you tell me about yourself?";
+
 const CAMERA: MediaStreamConstraints = {
 	video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user', frameRate: { ideal: 30 } },
 	audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -125,8 +127,10 @@ export default function InterviewPage() {
 
 	const saysAdvance = (text: string) => {
 		const t = text.toLowerCase().trim();
-		return /\b(next question|move on|i'?m done|im done|that'?s all|that is all|go to the next)\b/.test(t);
+		return /\b(next question|move on|i'?m done|im done|i am done|that'?s all|that is all|go to the next|next please|i'?m finished|im finished)\b/.test(t);
 	};
+
+	const wantsNext = (full: string) => saysAdvance(full.slice(-80));
 
 	const saysStillAnswering = (text: string) => {
 		const t = text.toLowerCase().trim();
@@ -300,7 +304,7 @@ export default function InterviewPage() {
 			if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
 			confirmTimerRef.current = setTimeout(() => {
 				if (listenModeRef.current !== 'confirm') return;
-				if (saysAdvance(heard)) finishConfirmAdvance();
+				if (saysAdvance(heard) || wantsNext(heard)) finishConfirmAdvance();
 				else if (saysStillAnswering(heard) || heard.length > 8) {
 					awaitingConfirmRef.current = false;
 					setAwaitingConfirm(false);
@@ -383,12 +387,12 @@ export default function InterviewPage() {
 			lastSpeechAtRef.current = Date.now();
 			scheduleSilencePrompt();
 
-			if (saysAdvance(t) && t.trim().length < 22) {
+			if (wantsNext(t)) {
 				setTimeout(() => {
 					if (listenModeRef.current !== mode) return;
 					if (mode === 'intro') advanceFromIntro();
 					else advanceAfterQuestion(questionIdx);
-				}, 900);
+				}, 700);
 			}
 		};
 
@@ -432,7 +436,7 @@ export default function InterviewPage() {
 	// Server-side integrity sweep: ship a frame to Amazon Rekognition on a fixed cadence
 	useEffect(() => {
 		if (phase !== 'interview' || !cameraReady) return;
-		const intervalMs = isDemoMode ? 3500 : 7000;
+		const intervalMs = isDemoMode ? 1800 : 2800;
 		runRekognitionCheck();
 		const id = setInterval(runRekognitionCheck, intervalMs);
 		return () => clearInterval(id);
@@ -555,7 +559,7 @@ export default function InterviewPage() {
 	const speakGreeting = async (resume = false) => {
 		if (greetingDoneRef.current) { speakQuestion(0, resume); return; }
 		setSpeaking(true);
-		const greeting = 'Hello, how are you doing? Can you tell me about yourself?';
+		const greeting = GREETING;
 		await speak(greeting, () => {
 			startAnswerListening('intro', 0, resume);
 		});
@@ -681,12 +685,12 @@ export default function InterviewPage() {
 		if (!video || video.readyState < 2 || !video.videoWidth) return null;
 		const grab = frameCanvasRef.current || document.createElement('canvas');
 		frameCanvasRef.current = grab;
-		grab.width = 480;
-		grab.height = Math.round((video.videoHeight / video.videoWidth) * 480) || 360;
+		grab.width = 960;
+		grab.height = Math.round((video.videoHeight / video.videoWidth) * 960) || 540;
 		const ctx = grab.getContext('2d');
 		if (!ctx) return null;
 		ctx.drawImage(video, 0, 0, grab.width, grab.height);
-		return grab.toDataURL('image/jpeg', 0.72);
+		return grab.toDataURL('image/jpeg', 0.86);
 	};
 
 	// Amazon Rekognition is the authority on integrity findings. The browser only
@@ -710,9 +714,10 @@ export default function InterviewPage() {
 			const data: RekognitionVerdict = await res.json();
 			setRekognition(data);
 			if (data.verdict === 'device_detected') {
-				rekogHoldUntilRef.current = Date.now() + 8000;
+				rekogHoldUntilRef.current = Date.now() + 10000;
 				setFaceStatus('phone_detected');
 				setArAlerts(a => ({ ...a, phone: a.phone + 1 }));
+				postProctorEvent('phone_detected', 0, data.details || 'Phone detected in frame');
 			} else if (data.verdict === 'multiple_faces') {
 				rekogHoldUntilRef.current = Date.now() + 6000;
 				setFaceStatus('multiple_faces');
@@ -917,7 +922,7 @@ export default function InterviewPage() {
 					<div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', marginBottom: '1.4rem', fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
 						<div>✓ Chrome or Edge · camera and mic allowed</div>
 						<div>✓ Face the light. Camera at eye level.</div>
-						<div>✓ First question: tell me about yourself</div>
+						<div>✓ First, Zara introduces herself and asks about you</div>
 					</div>
 					{camError && <p style={{ color: '#f59e0b', fontSize: '0.85rem', marginBottom: '0.85rem' }}>{camError}</p>}
 					<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.15rem' }}>
@@ -956,7 +961,7 @@ export default function InterviewPage() {
 	const totalSteps = questions.length + 1;
 	const stepNum = onIntro ? 1 : currentIdx + 2;
 	const statusLine = isSpeaking ? 'Interviewer speaking' : isListening ? (awaitingConfirm ? 'Say you are done when ready' : 'Your turn — speak your answer') : 'Ready';
-	const questionText = onIntro ? 'Hello, how are you doing? Can you tell me about yourself?' : (currentQ?.question || '');
+	const questionText = onIntro ? GREETING : (currentQ?.question || '');
 	const faceOk = faceStatus === 'locked';
 	const faceWarn = faceStatus === 'deviation' || faceStatus === 'multiple_faces' || faceStatus === 'phone_detected';
 	const lastQuestion = !onIntro && currentIdx >= questions.length - 1;
@@ -988,6 +993,11 @@ export default function InterviewPage() {
 			<div className={`interview-room-video ${faceOk ? 'is-ok' : ''} ${faceWarn ? 'is-warn' : ''}`}>
 				<video ref={videoRef} autoPlay playsInline muted style={{ transform: 'scaleX(-1)' }} />
 				<canvas ref={canvasRef} style={{ transform: 'scaleX(-1)' }} />
+				{faceStatus === 'phone_detected' && (
+					<div style={{ position: 'absolute', inset: 0, zIndex: 3, background: 'rgba(120, 53, 15, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.25rem', textAlign: 'center' }}>
+						<p style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800, color: '#fff' }}>Phone detected — this is logged as cheating</p>
+					</div>
+				)}
 				<div style={{ position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 2 }}>
 					<span className="interview-pill" style={{ background: faceOk ? 'rgba(16,185,129,0.9)' : faceWarn ? 'rgba(239,68,68,0.9)' : 'rgba(0,0,0,0.7)' }}>
 						{STATUS_COPY[faceStatus]}
@@ -1009,12 +1019,15 @@ export default function InterviewPage() {
 					<button className="btn btn-secondary" onClick={() => onIntro ? speakGreeting(true) : speakQuestion(currentIdx, true)} disabled={isSpeaking}>
 						Repeat
 					</button>
+					{!lastQuestion && (
+						<button className="btn btn-secondary" onClick={saveAndNext} disabled={isSpeaking}>I&apos;m done</button>
+					)}
 					{lastQuestion && (
 						<button className="btn btn-primary" onClick={saveAndNext} disabled={isSpeaking}>Finish interview</button>
 					)}
 				</div>
 				<p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.85rem 0 0' }}>
-					The interviewer moves on when you say “next question” or “I’m done.” Stay in frame.
+					The interviewer moves on when you say “I’m done” or “next question.” Put the phone down — it is flagged.
 				</p>
 			</div>
 		</div>

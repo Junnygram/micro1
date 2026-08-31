@@ -65,7 +65,7 @@ const BEATS: Beat[] = [
 		href: 'https://github.com/Junnygram/micro1/blob/main/REPRODUCTION.md',
 		external: true,
 		say: 'A second person can run the same ten cases from a clean clone. make verify-benchmark needs no key. make evaluate needs Gemini and takes about two minutes. Trajectories are in the repo.',
-		do: 'Optional 15s: /demo → Start interview, first line is tell-me-about-yourself, then leave. Skip if the clock is past 4:10.',
+		do: 'Start interview if you have time. First line: Zara introduces herself, then tell-me-about-yourself. Skip if the clock is past 4:10.',
 		skipIfLong: true,
 	},
 	{
@@ -213,6 +213,14 @@ export default function DemoGuidePage() {
 				</div>
 				<div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
 					<button
+						className="btn btn-primary"
+						style={{ fontSize: '0.8rem' }}
+						onClick={launchDemoInterview}
+						disabled={launchingInterview}
+					>
+						{launchingInterview ? 'Opening…' : 'Start interview'}
+					</button>
+					<button
 						className={record ? 'btn btn-primary' : 'btn btn-secondary'}
 						style={{ fontSize: '0.8rem' }}
 						onClick={() => setRecord(r => !r)}
@@ -315,7 +323,7 @@ export default function DemoGuidePage() {
 					)}
 					{record && beat.skipIfLong && (
 						<button className="btn btn-secondary" onClick={launchDemoInterview} disabled={launchingInterview || elapsed >= 250}>
-							{elapsed >= 250 ? 'Skip interview' : launchingInterview ? 'Opening…' : 'Optional 15s interview'}
+							{elapsed >= 250 ? 'Skip interview' : launchingInterview ? 'Opening…' : 'Start interview'}
 						</button>
 					)}
 					{active < BEATS.length - 1 && (
