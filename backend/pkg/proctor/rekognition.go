@@ -24,8 +24,8 @@ const (
 	MinLabelConfidence = 60.0
 	MinPhoneConfidence = 45.0
 	MinFaceConfidence  = 90.0
-	MaxYawDegrees      = 42.0
-	MaxPitchDegrees    = 38.0
+	MaxYawDegrees      = 25.0
+	MaxPitchDegrees    = 22.0
 )
 
 // deviceLabels are unauthorized objects in the webcam: a second phone, tablet,

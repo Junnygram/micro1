@@ -99,11 +99,15 @@ export default function InterviewPage() {
 	const awaitingConfirmRef = useRef(false);
 
 	const greetingDoneRef = useRef(false);
+	const listenArmedRef = useRef(false);
+	const onSpeechRef = useRef<(event: any) => void>(() => {});
 	const [onIntro, setOnIntro] = useState(true);
 	const [cameraReady, setCameraReady] = useState(false);
 	const [camError, setCamError] = useState('');
 	const [micLevel, setMicLevel] = useState(0);
 	const [isDemoMode, setIsDemoMode] = useState(false);
+	const [speechHint, setSpeechHint] = useState('');
+	const [hadFace, setHadFace] = useState(false);
 
 	const silenceBeforePromptMs = 25000;
 
@@ -119,9 +123,66 @@ export default function InterviewPage() {
 	};
 
 	const stopRecognition = () => {
+		listenArmedRef.current = false;
 		if (recognitionRef.current) {
 			try { recognitionRef.current.stop(); } catch { /* ignore */ }
 			recognitionRef.current = null;
+		}
+	};
+
+	const bootSpeechRecognition = () => {
+		const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+		if (!SR) {
+			setSpeechHint('Live captions need Chrome or Edge. Your mic is still recorded.');
+			setIsListening(false);
+			return;
+		}
+		listenArmedRef.current = true;
+		if (recognitionRef.current) {
+			setIsListening(true);
+			return;
+		}
+		const recognition = new SR();
+		recognition.continuous = true;
+		recognition.interimResults = true;
+		recognition.lang = 'en-US';
+		recognition.maxAlternatives = 1;
+		recognition.onstart = () => setIsListening(true);
+		recognition.onresult = (event: any) => onSpeechRef.current(event);
+		recognition.onerror = (event: { error?: string }) => {
+			if (event.error === 'not-allowed') {
+				listenArmedRef.current = false;
+				setIsListening(false);
+				setSpeechHint('Microphone permission is blocked for captions. Allow the mic and retry.');
+				return;
+			}
+			// no-speech / aborted / network: onend restarts.
+		};
+		recognition.onend = () => {
+			if (!listenArmedRef.current) {
+				setIsListening(false);
+				return;
+			}
+			window.setTimeout(() => {
+				if (!listenArmedRef.current || recognitionRef.current !== recognition) return;
+				try {
+					recognition.start();
+					setIsListening(true);
+				} catch {
+					setIsListening(false);
+				}
+			}, 180);
+		};
+		recognitionRef.current = recognition;
+		try {
+			recognition.start();
+			setIsListening(true);
+			setSpeechHint('');
+		} catch {
+			window.setTimeout(() => {
+				if (!listenArmedRef.current) return;
+				try { recognition.start(); setIsListening(true); } catch { /* ignore */ }
+			}, 250);
 		}
 	};
 
@@ -143,17 +204,20 @@ export default function InterviewPage() {
 	};
 
 	const applyFaceStatus = (next: FaceStatus) => {
-		if (next === 'multiple_faces' || next === 'phone_detected' || next === 'locked') {
+		// Warnings must show immediately. "In frame" waits a beat so a glance
+		// or a walk-off is not overwritten by one lucky frame.
+		if (next !== 'locked') {
 			pendingFaceRef.current = null;
 			setFaceStatus(next);
 			return;
 		}
-		if (!pendingFaceRef.current || pendingFaceRef.current.status !== next) {
-			pendingFaceRef.current = { status: next, since: Date.now() };
+		if (!pendingFaceRef.current || pendingFaceRef.current.status !== 'locked') {
+			pendingFaceRef.current = { status: 'locked', since: Date.now() };
 			return;
 		}
-		if (Date.now() - pendingFaceRef.current.since >= 600) {
-			setFaceStatus(next);
+		if (Date.now() - pendingFaceRef.current.since >= 350) {
+			setFaceStatus('locked');
+			setHadFace(true);
 		}
 	};
 
@@ -220,7 +284,6 @@ export default function InterviewPage() {
 		awaitingConfirmRef.current = false;
 		setAwaitingConfirm(false);
 		clearListenTimers();
-		stopRecognition();
 		saveCurrentAnswer();
 		const next = idx + 1;
 		if (next < questions.length) {
@@ -237,7 +300,6 @@ export default function InterviewPage() {
 		greetingDoneRef.current = true;
 		setOnIntro(false);
 		clearListenTimers();
-		stopRecognition();
 		saveCurrentAnswer();
 		if (questions.length === 0) {
 			submitInterview(answersRef.current);
@@ -259,9 +321,7 @@ export default function InterviewPage() {
 			: listenQuestionIdxRef.current;
 		awaitingConfirmRef.current = true;
 		setAwaitingConfirm(true);
-		stopRecognition();
 		clearListenTimers();
-		setIsListening(false);
 
 		const pending = pendingAdvanceRef.current;
 		const questionText = pending === 'intro'
@@ -282,75 +342,15 @@ export default function InterviewPage() {
 	};
 
 	const startConfirmListening = () => {
-		const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-		if (!SR) {
-			setIsListening(false);
-			return;
-		}
-
 		listenModeRef.current = 'confirm';
-		const recognition = new SR();
-		recognition.continuous = true;
-		recognition.interimResults = true;
-		recognition.lang = 'en-US';
-		let heard = '';
-
-		recognition.onresult = (event: any) => {
-			let t = '';
-			for (let i = 0; i < event.results.length; i++) t += event.results[i][0].transcript;
-			heard = t.replace(/\s+/g, ' ').trim();
-			setTranscript(heard);
-			lastSpeechAtRef.current = Date.now();
-			if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
-			confirmTimerRef.current = setTimeout(() => {
-				if (listenModeRef.current !== 'confirm') return;
-				if (saysAdvance(heard) || wantsNext(heard)) finishConfirmAdvance();
-				else if (saysStillAnswering(heard) || heard.length > 8) {
-					awaitingConfirmRef.current = false;
-					setAwaitingConfirm(false);
-					const merged = `${committedRef.current} ${heard}`.replace(/\s+/g, ' ').trim();
-					committedRef.current = merged;
-					accumulatedRef.current = merged;
-					stopRecognition();
-					if (pendingAdvanceRef.current === 'intro') startAnswerListening('intro', 0, true);
-					else startAnswerListening('question', pendingAdvanceRef.current as number, true);
-				}
-			}, 2200);
-		};
-
-		recognition.onend = () => {
-			if (listenModeRef.current !== 'confirm' || !activeRef.current) {
-				setIsListening(false);
-				return;
-			}
-			try {
-				recognition.start();
-				setIsListening(true);
-			} catch {
-				setIsListening(false);
-			}
-		};
-
-		recognitionRef.current = recognition;
-		try { recognition.start(); } catch { /* already started */ }
+		bootSpeechRecognition();
 		setIsListening(true);
-
-		// Stay on this question until they say yes or press Next. Do not auto-skip.
 	};
 
 	const startAnswerListening = (mode: 'intro' | 'question', questionIdx = 0, resume = false) => {
-		const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-		if (!SR) {
-			setIsListening(false);
-			setSpeaking(false);
-			return;
-		}
-
 		awaitingConfirmRef.current = false;
 		setAwaitingConfirm(false);
 		clearListenTimers();
-		stopRecognition();
-
 		listenModeRef.current = mode;
 		listenQuestionIdxRef.current = questionIdx;
 		if (!resume) {
@@ -359,62 +359,51 @@ export default function InterviewPage() {
 			setTranscript('');
 		}
 		lastSpeechAtRef.current = Date.now();
-
-		const recognition = new SR();
-		recognition.continuous = true;
-		recognition.interimResults = true;
-		recognition.lang = 'en-US';
-		let lastFinalCount = 0;
-
-		recognition.onresult = (event: any) => {
-			let interim = '';
-			let finalsSeen = 0;
-			for (let i = 0; i < event.results.length; i++) {
-				const piece = event.results[i][0].transcript;
-				if (event.results[i].isFinal) {
-					if (i >= lastFinalCount) {
-						committedRef.current = `${committedRef.current} ${piece}`.replace(/\s+/g, ' ').trim();
-					}
-					finalsSeen += 1;
-				} else {
-					interim += piece;
-				}
-			}
-			lastFinalCount = finalsSeen;
-			const t = `${committedRef.current} ${interim}`.replace(/\s+/g, ' ').trim();
-			accumulatedRef.current = t;
-			setTranscript(t);
-			lastSpeechAtRef.current = Date.now();
-			scheduleSilencePrompt();
-
-			if (wantsNext(t)) {
-				setTimeout(() => {
-					if (listenModeRef.current !== mode) return;
-					if (mode === 'intro') advanceFromIntro();
-					else advanceAfterQuestion(questionIdx);
-				}, 700);
-			}
-		};
-
-		recognition.onend = () => {
-			lastFinalCount = 0;
-			if (listenModeRef.current !== mode || awaitingConfirmRef.current || !activeRef.current) {
-				setIsListening(false);
-				return;
-			}
-			try {
-				recognition.start();
-				setIsListening(true);
-			} catch {
-				setIsListening(false);
-			}
-		};
-
-		recognitionRef.current = recognition;
-		try { recognition.start(); } catch { /* already started */ }
-		setIsListening(true);
+		bootSpeechRecognition();
 		setSpeaking(false);
 		scheduleSilencePrompt();
+	};
+
+	onSpeechRef.current = (event: any) => {
+		if (isSpeakingRef.current) return;
+		let interim = '';
+		for (let i = event.resultIndex; i < event.results.length; i++) {
+			const piece = event.results[i][0].transcript;
+			if (event.results[i].isFinal) {
+				committedRef.current = `${committedRef.current} ${piece}`.replace(/\s+/g, ' ').trim();
+			} else {
+				interim += piece;
+			}
+		}
+		const t = `${committedRef.current} ${interim}`.replace(/\s+/g, ' ').trim();
+		accumulatedRef.current = t;
+		setTranscript(t);
+		lastSpeechAtRef.current = Date.now();
+		if (listenModeRef.current !== 'confirm') scheduleSilencePrompt();
+
+		if (listenModeRef.current === 'confirm') {
+			if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+			confirmTimerRef.current = setTimeout(() => {
+				if (listenModeRef.current !== 'confirm') return;
+				if (saysAdvance(t) || wantsNext(t)) finishConfirmAdvance();
+				else if (saysStillAnswering(t) || t.length > 8) {
+					awaitingConfirmRef.current = false;
+					setAwaitingConfirm(false);
+					listenModeRef.current = pendingAdvanceRef.current === 'intro' ? 'intro' : 'question';
+				}
+			}, 2200);
+			return;
+		}
+
+		if (wantsNext(t)) {
+			const mode = listenModeRef.current;
+			const idx = listenQuestionIdxRef.current;
+			window.setTimeout(() => {
+				if (listenModeRef.current !== mode) return;
+				if (mode === 'intro') advanceFromIntro();
+				else advanceAfterQuestion(idx);
+			}, 700);
+		}
 	};
 
 	useEffect(() => { loadSession(); }, [token]);
@@ -534,9 +523,12 @@ export default function InterviewPage() {
 	};
 
 	const startInterview = async () => {
+		bootSpeechRecognition();
+		try { audioCtxRef.current?.resume(); } catch { /* ignore */ }
 		if (!streamRef.current) await enablePreview();
 		if (!streamRef.current) return;
 		greetingDoneRef.current = false;
+		setHadFace(false);
 		setOnIntro(true);
 		sessionBootRef.current = false;
 		setPhase('interview');
@@ -559,6 +551,7 @@ export default function InterviewPage() {
 	const speakGreeting = async (resume = false) => {
 		if (greetingDoneRef.current) { speakQuestion(0, resume); return; }
 		setSpeaking(true);
+		bootSpeechRecognition();
 		const greeting = GREETING;
 		await speak(greeting, () => {
 			startAnswerListening('intro', 0, resume);
@@ -722,9 +715,13 @@ export default function InterviewPage() {
 				rekogHoldUntilRef.current = Date.now() + 6000;
 				setFaceStatus('multiple_faces');
 				setArAlerts(a => ({ ...a, multipleFaces: a.multipleFaces + 1 }));
+			} else if (data.verdict === 'no_face') {
+				rekogHoldUntilRef.current = Date.now() + 2000;
+				setFaceStatus('no_face');
+				postProctorEvent('look_away', 0, data.details || 'Left the camera');
 			} else if (data.verdict === 'gaze_away' || data.event_type === 'look_away') {
 				rekogHoldUntilRef.current = Date.now() + 2500;
-				setFaceStatus(data.verdict === 'no_face' ? 'no_face' : 'deviation');
+				setFaceStatus('deviation');
 				postProctorEvent('look_away', 0, data.details || 'Looked away from camera');
 			}
 		} catch { /* transient network — next tick retries */ } finally {
@@ -746,7 +743,7 @@ export default function InterviewPage() {
 				const canvas = canvasRef.current;
 				const ctx = canvas?.getContext('2d');
 				if (results.faceLandmarks?.length > 0) {
-					const evaled = evaluateFaces(results.faceLandmarks);
+					const evaled = evaluateFaces(results.faceLandmarks, results.facialTransformationMatrixes);
 					const faceCount = evaled.faceCount;
 					const holdingRekog = Date.now() < rekogHoldUntilRef.current;
 					if (!holdingRekog) applyFaceStatus(evaled.status);
@@ -849,10 +846,10 @@ export default function InterviewPage() {
 			return;
 		}
 		setSpeaking(true);
-		setIsListening(false);
+		setIsListening(true);
 		if (!resume) setTranscript('');
 		clearListenTimers();
-		stopRecognition();
+		bootSpeechRecognition();
 
 		const text = questions[idx].question;
 		await speak(text, () => { setSpeaking(false); startAnswerListening('question', idx, resume); });
@@ -963,8 +960,17 @@ export default function InterviewPage() {
 	const statusLine = isSpeaking ? 'Interviewer speaking' : isListening ? (awaitingConfirm ? 'Say you are done when ready' : 'Your turn — speak your answer') : 'Ready';
 	const questionText = onIntro ? GREETING : (currentQ?.question || '');
 	const faceOk = faceStatus === 'locked';
-	const faceWarn = faceStatus === 'deviation' || faceStatus === 'multiple_faces' || faceStatus === 'phone_detected';
+	const faceWarn = faceStatus === 'deviation' || faceStatus === 'multiple_faces' || faceStatus === 'phone_detected' || faceStatus === 'no_face';
 	const lastQuestion = !onIntro && currentIdx >= questions.length - 1;
+	const transcriptPlaceholder = isSpeaking
+		? 'Listen…'
+		: speechHint
+			? speechHint
+			: (isListening && micLevel > 0.1)
+				? 'Hearing you…'
+				: isListening
+					? 'Your answer appears here as you speak.'
+					: 'Waiting for the microphone…';
 
 	return (
 		<div className="interview-room">
@@ -998,6 +1004,16 @@ export default function InterviewPage() {
 						<p style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800, color: '#fff' }}>Device detected — this is logged as cheating</p>
 					</div>
 				)}
+				{faceStatus === 'deviation' && (
+					<div style={{ position: 'absolute', inset: 0, zIndex: 3, background: 'rgba(127, 29, 29, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.25rem', textAlign: 'center' }}>
+						<p style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800, color: '#fff' }}>Looking away — this is logged</p>
+					</div>
+				)}
+				{faceStatus === 'no_face' && hadFace && (
+					<div style={{ position: 'absolute', inset: 0, zIndex: 3, background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.25rem', textAlign: 'center' }}>
+						<p style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800, color: '#fff' }}>Get back in camera</p>
+					</div>
+				)}
 				<div style={{ position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 2 }}>
 					<span className="interview-pill" style={{ background: faceOk ? 'rgba(16,185,129,0.9)' : faceWarn ? 'rgba(239,68,68,0.9)' : 'rgba(0,0,0,0.7)' }}>
 						{STATUS_COPY[faceStatus]}
@@ -1012,7 +1028,7 @@ export default function InterviewPage() {
 				<h1 style={{ fontSize: '1.35rem', fontWeight: 800, lineHeight: 1.35, margin: '0 0 0.75rem' }}>{questionText}</h1>
 				<div style={{ padding: '1rem 1.1rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '0.75rem', minHeight: '4.5rem', marginBottom: '1rem' }}>
 					<p style={{ fontSize: '0.95rem', color: transcript ? 'var(--text-primary)' : 'var(--text-muted)', lineHeight: 1.55, margin: 0 }}>
-						{transcript || (isSpeaking ? 'Listen…' : 'Your answer appears here as you speak.')}
+						{transcript || transcriptPlaceholder}
 					</p>
 				</div>
 				<div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap', alignItems: 'center' }}>
