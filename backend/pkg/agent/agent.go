@@ -564,7 +564,6 @@ You have access to tools:
 - list_repo_files: returns ALL file paths available in a repo. ALWAYS call this before get_repo_file — never guess paths like README.md or package.json.
 - get_repo_file: returns the complete contents of a specific file. Use exact paths from list_repo_files.
 - get_proctoring_logs: returns camera look-aways, tab blurs, secondary voice prompts.
-- search_web_intel: runs search grounding to verify credentials, talks, or other public achievements.
 - save_claim_audit: records a verified, exaggerated, or failed resume claim with cited evidence and code files.
 - save_proctoring_flag: logs a proctoring distraction or focus alert to show in the UI timeline.
 - complete_audit: saves the final technical sourcing score and finishes the session.

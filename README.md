@@ -1,6 +1,7 @@
 # ZaraSourcing — Evidence-Based Technical Hiring
 
-> **Built for the micro1 Hackathon** · Go + Next.js · AWS Bedrock Claude · AWS Rekognition · AWS Polly · MediaPipe
+> **Built for the micro1 Frontier Engineering Challenge 2026** · individual entry · Go + Next.js  
+> **Coding agent used to build this:** Cursor. **Runtime agents:** Bedrock Claude + Gemini (see [AGENTS.md](./AGENTS.md)).
 
 **Live demo:** https://micro1-production.up.railway.app/demo
 **Judge login:** `demo@zarasourcing.com` / `demo123`
@@ -16,7 +17,9 @@ This maps to the hackathon’s **candidate evaluation** example: *should we hire
 | **03 Does the agent solve it well?** | A tool-calling agent reads repo files, cites them, and flags contradictions. A text-only baseline on the **same 10 cases** gets 60% verdict accuracy and catches **1/5** frauds. The agent gets 70% and catches **5/5**. It over-flags 3 honest engineers — that cost is in the table, not hidden. A qualified recruiter still makes the hire. |
 | **04 Can another person reproduce the result?** | Yes. `make verify-benchmark` (no key). `make evaluate` (Gemini key, ~2–5 min). Same cases in `backend/data/candidates/dataset.json`. Live walkthrough: `/demo`. |
 
-**Judge packet:** [CHANGELOG.md](./CHANGELOG.md) · [REPRODUCTION.md](./REPRODUCTION.md) · [SUBMISSION.md](./SUBMISSION.md) (video script) · [backend/data/trajectories/](./backend/data/trajectories/)
+**Judge packet:** [AGENTS.md](./AGENTS.md) (instructions + tool disclosure) · [CHANGELOG.md](./CHANGELOG.md) · [REPRODUCTION.md](./REPRODUCTION.md) · [SUBMISSION.md](./SUBMISSION.md) · [backend/data/trajectories/](./backend/data/trajectories/)
+
+**Baseline vs advanced (required):** same 10 cases in `backend/data/candidates/dataset.json`. Baseline = one prompt, no tools. Advanced = tool loop. Compare with `make evaluate` or the frozen file `backend/data/benchmark_results.json` via `make verify-benchmark` (no API key). **Tests:** `make verify-benchmark` · `make test-proctor` · `go test ./pkg/benchmark/...`.
 
 ---
 

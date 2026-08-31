@@ -36,6 +36,23 @@ It pulls the same 10 synthetic cases the baseline sees, opens repo files, and ci
 
 What existed before this competition: nothing in this repo. The product, agents, cases, and benchmark were built for this hackathon.
 
+**Coding-agent disclosure (required):** the repo was built in **Cursor**. Runtime evaluation uses **Gemini** (`make evaluate`) and **AWS Bedrock Claude** when keys are set. Instructions: [AGENTS.md](./AGENTS.md).
+
+### Qualification gate (official FAQ)
+
+| Check | Status |
+|---|---|
+| Timely | Deadline **31 Aug 2026 18:00 UTC** — submit on HackerEarth before that |
+| Repository | https://github.com/Junnygram/micro1 |
+| README + changelog | README four questions + [CHANGELOG.md](./CHANGELOG.md) |
+| Reproduction + tests | [REPRODUCTION.md](./REPRODUCTION.md) · `make verify-benchmark` · `make test-proctor` |
+| Baseline + advanced | `baseline.go` vs `agent.go` · same 10 cases |
+| Agent-use evidence | [AGENTS.md](./AGENTS.md) · `backend/data/trajectories/` |
+| Demo | https://micro1-production.up.railway.app/demo |
+| Video (you still record this) | ≤ 5 min · script below · Railway URL, not localhost |
+| Secrets out | no `.env` in git · synthetic `dataset.json` |
+| Human reviewer | recruiter decides the hire |
+
 ---
 
 ## Scorecard (self-check, 100 pts)
