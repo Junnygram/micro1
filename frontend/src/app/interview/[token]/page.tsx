@@ -24,6 +24,11 @@ interface RekognitionVerdict {
 
 type Phase = 'loading' | 'intro' | 'interview' | 'submitting' | 'done' | 'error';
 
+const CAMERA: MediaStreamConstraints = {
+	video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user', frameRate: { ideal: 30 } },
+	audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+};
+
 export default function InterviewPage() {
 	const { token } = useParams() as { token: string };
 	const [phase, setPhase] = useState<Phase>('loading');
@@ -58,8 +63,12 @@ export default function InterviewPage() {
 
 	// Webcam + AR
 	const videoRef = useRef<HTMLVideoElement>(null);
+	const previewRef = useRef<HTMLVideoElement>(null);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const streamRef = useRef<MediaStream | null>(null);
+	const sessionBootRef = useRef(false);
+	const micRafRef = useRef(0);
+	const audioCtxRef = useRef<AudioContext | null>(null);
 	const faceLandmarkerRef = useRef<any>(null);
 	const animFrameRef = useRef<number>(0);
 	const activeRef = useRef(false);
@@ -90,6 +99,8 @@ export default function InterviewPage() {
 	const greetingDoneRef = useRef(false);
 	const [onIntro, setOnIntro] = useState(true);
 	const [cameraReady, setCameraReady] = useState(false);
+	const [camError, setCamError] = useState('');
+	const [micLevel, setMicLevel] = useState(0);
 	const [isDemoMode, setIsDemoMode] = useState(false);
 
 	const silenceBeforePromptMs = 25000;
@@ -472,13 +483,74 @@ export default function InterviewPage() {
 		}
 	};
 
+	const startMicMeter = (stream: MediaStream) => {
+		try {
+			const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+			const ctx = new Ctx();
+			audioCtxRef.current = ctx;
+			const src = ctx.createMediaStreamSource(stream);
+			const analyser = ctx.createAnalyser();
+			analyser.fftSize = 256;
+			src.connect(analyser);
+			const data = new Uint8Array(analyser.fftSize);
+			const tick = () => {
+				analyser.getByteTimeDomainData(data);
+				let sum = 0;
+				for (let i = 0; i < data.length; i++) {
+					const v = (data[i] - 128) / 128;
+					sum += v * v;
+				}
+				setMicLevel(Math.min(1, Math.sqrt(sum / data.length) * 5));
+				micRafRef.current = requestAnimationFrame(tick);
+			};
+			tick();
+		} catch { /* meter is optional */ }
+	};
+
+	const attachVideo = async (el: HTMLVideoElement | null) => {
+		if (!el || !streamRef.current) return;
+		el.srcObject = streamRef.current;
+		try { await el.play(); } catch { /* autoplay race */ }
+	};
+
+	const enablePreview = async () => {
+		try {
+			if (!streamRef.current) {
+				const stream = await navigator.mediaDevices.getUserMedia(CAMERA);
+				streamRef.current = stream;
+				startMicMeter(stream);
+			}
+			await attachVideo(previewRef.current);
+			setCameraReady(true);
+			setCamError('');
+		} catch {
+			setCameraReady(false);
+			setCamError('Camera or microphone was blocked. Allow both in Chrome, then try again.');
+		}
+	};
+
 	const startInterview = async () => {
-		setPhase('interview');
+		if (!streamRef.current) await enablePreview();
+		if (!streamRef.current) return;
 		greetingDoneRef.current = false;
 		setOnIntro(true);
-		await startCamera();
-		speakGreeting();
+		sessionBootRef.current = false;
+		setPhase('interview');
 	};
+
+	useEffect(() => {
+		if (phase === 'intro') enablePreview();
+	}, [phase]);
+
+	useEffect(() => {
+		if (phase !== 'interview' || sessionBootRef.current) return;
+		sessionBootRef.current = true;
+		(async () => {
+			await attachVideo(videoRef.current);
+			await startCamera();
+			speakGreeting();
+		})();
+	}, [phase]);
 
 	const speakGreeting = async (resume = false) => {
 		if (greetingDoneRef.current) { speakQuestion(0, resume); return; }
@@ -549,17 +621,25 @@ export default function InterviewPage() {
 
 	const startCamera = async () => {
 		try {
-			const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: true });
-			streamRef.current = stream;
-			if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+			if (!streamRef.current) {
+				const stream = await navigator.mediaDevices.getUserMedia(CAMERA);
+				streamRef.current = stream;
+				startMicMeter(stream);
+			}
+			await attachVideo(videoRef.current);
 			activeRef.current = true;
 			setCameraReady(true);
 
 			recordedChunksRef.current = [];
-			const mime = ['video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9,opus', 'video/webm', 'video/mp4']
+			if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+				try { mediaRecorderRef.current.stop(); } catch { /* already stopped */ }
+			}
+			const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
 				.find(t => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t));
 			try {
-				const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+				const recorder = mime
+					? new MediaRecorder(streamRef.current, { mimeType: mime, videoBitsPerSecond: 2_500_000, audioBitsPerSecond: 128_000 })
+					: new MediaRecorder(streamRef.current, { videoBitsPerSecond: 2_500_000, audioBitsPerSecond: 128_000 });
 				recorder.ondataavailable = e => { if (e.data.size > 0) recordedChunksRef.current.push(e.data); };
 				recorder.start(1000);
 				mediaRecorderRef.current = recorder;
@@ -567,7 +647,6 @@ export default function InterviewPage() {
 				console.warn('Interview recording could not start:', e);
 			}
 
-			// AR face tracking — load model from Google CDN (works on Railway without bundling)
 			try {
 				const vision = await import('@mediapipe/tasks-vision');
 				const filesetResolver = await vision.FilesetResolver.forVisionTasks('/wasm');
@@ -582,10 +661,11 @@ export default function InterviewPage() {
 				faceLandmarkerRef.current = landmarker;
 				runARLoop();
 			} catch (e) {
-				console.warn('AR init failed, continuing without face mesh:', e);
+				console.warn('AR init failed, continuing without face tracking:', e);
 			}
 		} catch {
 			setCameraReady(false);
+			setCamError('Camera or microphone was blocked. Allow both in Chrome, then try again.');
 		}
 	};
 
@@ -665,11 +745,6 @@ export default function InterviewPage() {
 							}
 						}
 
-						const lms = results.faceLandmarks[0];
-						const w = canvas.width;
-						const h = canvas.height;
-						const isLocked = evaled.status === 'locked' || !evaled.lookingAway;
-
 						if (evaled.lookingAway || evaled.status === 'no_face') {
 							if (!lookAwayStartRef.current) lookAwayStartRef.current = Date.now();
 						} else if (lookAwayStartRef.current) {
@@ -678,26 +753,12 @@ export default function InterviewPage() {
 							lookAwayStartRef.current = null;
 						}
 
-						const meshColor = isLocked ? 'rgba(16,185,129,0.55)' : 'rgba(239,68,68,0.55)';
-						const boxColor = isLocked ? '#10b981' : '#ef4444';
-
-						ctx.fillStyle = meshColor;
-						for (let i = 0; i < lms.length; i += 3) {
-							const lm = lms[i];
-							ctx.beginPath();
-							ctx.arc(lm.x * w, lm.y * h, 1.05, 0, Math.PI * 2);
-							ctx.fill();
+						const alertStatus = evaled.status === 'deviation' || evaled.status === 'multiple_faces' || evaled.status === 'phone_detected';
+						if (alertStatus) {
+							ctx.strokeStyle = evaled.status === 'multiple_faces' ? '#c084fc' : evaled.status === 'phone_detected' ? '#f59e0b' : '#ef4444';
+							ctx.lineWidth = Math.max(6, canvas.width * 0.007);
+							ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20);
 						}
-
-						const xs = lms.map((l: { x: number }) => l.x * w);
-						const ys = lms.map((l: { y: number }) => l.y * h);
-						const bx = Math.min(...xs) - 12;
-						const by = Math.min(...ys) - 12;
-						const bw = Math.max(...xs) - bx + 12;
-						const bh = Math.max(...ys) - by + 12;
-						ctx.strokeStyle = boxColor;
-						ctx.lineWidth = 2;
-						ctx.strokeRect(bx, by, bw, bh);
 					} else {
 						if (Date.now() >= rekogHoldUntilRef.current) applyFaceStatus('no_face');
 						if (!lookAwayStartRef.current) lookAwayStartRef.current = Date.now();
@@ -744,6 +805,9 @@ export default function InterviewPage() {
 			}
 		}
 
+		cancelAnimationFrame(micRafRef.current);
+		try { audioCtxRef.current?.close(); } catch { /* ignore */ }
+		audioCtxRef.current = null;
 		streamRef.current?.getTracks().forEach(t => t.stop());
 		streamRef.current = null;
 	};
@@ -811,107 +875,125 @@ export default function InterviewPage() {
 	if (phase === 'intro') {
 		const firstName = candidate?.name?.split(' ')[0];
 		const greetName = firstName && firstName.toLowerCase() !== 'demo' ? firstName : null;
+		const micBars = [0, 1, 2, 3, 4];
 		return (
-		<div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
-			<div className="panel" style={{ maxWidth: '520px', width: '100%', padding: '2.5rem' }}>
-				<div className="logo-icon" style={{ margin: '0 auto 1.5rem auto', background: 'linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%)', width: '2.75rem', height: '2.75rem', fontSize: '0.9rem' }}>ZS</div>
-				<p style={{ textAlign: 'center', fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.5rem' }}>ZaraSourcing</p>
-				<h2 style={{ fontSize: '1.65rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '0.5rem', textAlign: 'center' }}>
-					{greetName ? `${greetName}, your interview is ready` : 'Your interview is ready'}
-				</h2>
-				<p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '1.75rem', lineHeight: '1.65', textAlign: 'center' }}>
-					{candidate?.role ? <>You&apos;re interviewing for <strong style={{ color: 'var(--text-primary)' }}>{candidate.role}</strong>. </> : null}
-					Questions are asked out loud. Speak naturally — we transcribe as you go. Stay in frame; this session is recorded.
-				</p>
-				<div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', marginBottom: '1.75rem', textAlign: 'left', padding: '1.1rem 1.15rem', background: 'rgba(255,255,255,0.02)', borderRadius: '0.65rem', border: '1px solid var(--border-color)' }}>
-					{[
-						'Use Chrome or Edge, and allow camera and microphone',
-						'Answer out loud — transcription appears as you speak',
-						'Stay in frame. Looking away or a second person is logged',
-						'This session is recorded for the hiring team',
-					].map((tip, i) => (
-						<div key={i} style={{ display: 'flex', gap: '0.65rem', alignItems: 'flex-start', fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
-							<span style={{ color: 'var(--color-accent)', fontWeight: 700 }}>✓</span> {tip}
+			<div className="interview-lobby">
+				<div className="interview-lobby-copy">
+					<div className="logo-icon" style={{ marginBottom: '1.15rem', background: 'linear-gradient(135deg, var(--color-accent) 0%, #a855f7 100%)', width: '2.5rem', height: '2.5rem', fontSize: '0.85rem' }}>ZS</div>
+					<p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.45rem' }}>Camera check</p>
+					<h2 style={{ fontSize: '1.7rem', fontWeight: 800, marginBottom: '0.5rem', letterSpacing: '-0.03em' }}>
+						{greetName ? `${greetName}, check your setup` : 'Check your setup'}
+					</h2>
+					<p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginBottom: '1.35rem', lineHeight: 1.6 }}>
+						{candidate?.role ? <>Interviewing for <strong style={{ color: 'var(--text-primary)' }}>{candidate.role}</strong>. </> : null}
+						Fit your face in the oval. We only start recording after you begin.
+					</p>
+					<div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', marginBottom: '1.4rem', fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+						<div>✓ Chrome or Edge · camera and mic allowed</div>
+						<div>✓ Face the light. Camera at eye level.</div>
+						<div>✓ First question: tell me about yourself</div>
+					</div>
+					{camError && <p style={{ color: '#f59e0b', fontSize: '0.85rem', marginBottom: '0.85rem' }}>{camError}</p>}
+					<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.15rem' }}>
+						<span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Mic</span>
+						<div className="interview-mic">
+							{micBars.map(i => {
+								const on = micLevel * 5 > i;
+								return <span key={i} style={{ height: on ? `${8 + i * 2.5}px` : '4px', opacity: on ? 1 : 0.28 }} />;
+							})}
 						</div>
-					))}
+						<span style={{ fontSize: '0.78rem', color: cameraReady ? '#10b981' : 'var(--text-muted)' }}>
+							{cameraReady ? 'Camera ready' : 'Waiting for camera…'}
+						</span>
+					</div>
+					<button className="btn btn-primary" style={{ width: '100%', padding: '0.95rem', fontSize: '1rem', fontWeight: 700 }} onClick={startInterview} disabled={!cameraReady && !camError}>
+						{cameraReady ? 'Begin interview' : camError ? 'Try camera again' : 'Allow camera to continue'}
+					</button>
+					{camError && (
+						<button className="btn btn-secondary" style={{ width: '100%', marginTop: '0.6rem' }} onClick={enablePreview}>Allow camera</button>
+					)}
+					<p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '0.9rem' }}>This session is recorded for the hiring team. You can repeat a question at any time.</p>
 				</div>
-				<button className="btn btn-primary" style={{ width: '100%', padding: '1rem', fontSize: '1rem', fontWeight: 700 }} onClick={startInterview}>
-					Begin interview
-				</button>
-				<p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '1rem' }}>Quiet room. Camera at eye level. You can repeat a question at any time.</p>
+				<div className="interview-lobby-preview">
+					<video ref={previewRef} autoPlay playsInline muted />
+					<div className="interview-oval" />
+					{!cameraReady && (
+						<p style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.7)', fontSize: '0.9rem', zIndex: 1, padding: '1.5rem', textAlign: 'center' }}>
+							{camError || 'Allow the camera to see your framing'}
+						</p>
+					)}
+				</div>
 			</div>
-		</div>
 		);
 	}
 
 	const totalSteps = questions.length + 1;
 	const stepNum = onIntro ? 1 : currentIdx + 2;
-	const stepProgress = (stepNum / totalSteps) * 100;
-	const statusLine = isSpeaking ? 'The interviewer is speaking' : isListening ? (awaitingConfirm ? 'Say yes for the next question' : 'Listening — speak your answer') : 'Ready';
+	const statusLine = isSpeaking ? 'Interviewer speaking' : isListening ? (awaitingConfirm ? 'Say you are done when ready' : 'Your turn') : 'Ready';
+	const questionText = onIntro ? 'Hello, how are you doing? Can you tell me about yourself?' : (currentQ?.question || '');
+	const faceOk = faceStatus === 'locked';
+	const faceWarn = faceStatus === 'deviation' || faceStatus === 'multiple_faces' || faceStatus === 'phone_detected';
 
 	return (
-		<div className="interview-grid">
-			<div style={{ padding: '1.75rem 1.75rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-				<div>
-					<p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.04em', margin: '0 0 0.85rem' }}>
-						{candidate?.name ? `${candidate.name}` : 'Interview'}{candidate?.role ? ` · ${candidate.role}` : ''}
-					</p>
-					<div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-						<span>{onIntro ? 'Introduction' : `Question ${currentIdx + 1} of ${questions.length}`}</span>
-						<span>{stepNum} / {totalSteps}</span>
+		<div className="interview-stage">
+			<div className="interview-stage-feed">
+				<video ref={videoRef} autoPlay playsInline muted style={{ transform: 'scaleX(-1)' }} />
+				<canvas ref={canvasRef} style={{ transform: 'scaleX(-1)' }} />
+				<div className="interview-vignette" />
+			</div>
+
+			<div className="interview-top">
+				<div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+					<div className="logo-icon" style={{ width: '1.7rem', height: '1.7rem', fontSize: '0.6rem' }}>ZS</div>
+					<div>
+						<p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 700 }}>{candidate?.name || 'Interview'}</p>
+						<p style={{ margin: 0, fontSize: '0.68rem', color: 'rgba(255,255,255,0.55)' }}>{candidate?.role || 'Live session'}</p>
 					</div>
-					<div style={{ height: '3px', background: 'rgba(255,255,255,0.06)', borderRadius: '2px', overflow: 'hidden' }}>
-						<div style={{ height: '100%', width: `${stepProgress}%`, background: 'var(--color-accent)', transition: 'width 0.4s ease' }} />
-					</div>
 				</div>
-
-				<div style={{ padding: '1.75rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '0.85rem' }}>
-					<p style={{ fontSize: '0.72rem', color: 'var(--color-accent)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.65rem' }}>
-						{onIntro ? 'To start' : `Question ${currentIdx + 1}`}
-					</p>
-					<p style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.45, margin: 0 }}>
-						{onIntro ? 'Hello, how are you doing? Can you tell me about yourself?' : currentQ?.question}
-					</p>
+				<div className="interview-dots" aria-label={`Step ${stepNum} of ${totalSteps}`}>
+					{Array.from({ length: totalSteps }).map((_, i) => (
+						<i key={i} className={i < stepNum ? 'on' : undefined} />
+					))}
 				</div>
-
-				<div style={{ flex: 1, padding: '1.25rem 1.4rem', background: '#09070a', border: `1px solid ${isListening ? 'rgba(16,185,129,0.35)' : 'var(--border-color)'}`, borderRadius: '0.85rem', minHeight: '150px' }}>
-					<p style={{ fontSize: '0.72rem', color: isListening ? '#10b981' : 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.04em', marginBottom: '0.65rem' }}>
-						{statusLine}
-					</p>
-					<p style={{ fontSize: '1.05rem', color: transcript ? 'var(--text-primary)' : 'var(--text-muted)', lineHeight: 1.65, margin: 0 }}>
-						{transcript || (isSpeaking ? 'Listen…' : 'Your answer will appear here as you speak.')}
-					</p>
-				</div>
-
-				<div style={{ display: 'flex', gap: '0.65rem' }}>
-					<button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => onIntro ? speakGreeting(true) : speakQuestion(currentIdx, true)} disabled={isSpeaking}>
-						Repeat
-					</button>
-					<button className="btn btn-primary" style={{ flex: 1 }} onClick={saveAndNext} disabled={isSpeaking}>
-						{onIntro || currentIdx < questions.length - 1 ? 'Next' : 'Finish'}
-					</button>
+				<div style={{ display: 'flex', gap: '0.45rem', alignItems: 'center' }}>
+					{cameraReady && (
+						<span className="interview-pill">
+							<span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', animation: 'pulseStatus 1.5s infinite' }} />
+							REC
+						</span>
+					)}
+					<span className="interview-pill" style={{ background: faceOk ? 'rgba(16,185,129,0.85)' : faceWarn ? 'rgba(239,68,68,0.85)' : 'rgba(0,0,0,0.55)' }}>
+						{STATUS_COPY[faceStatus]}
+					</span>
 				</div>
 			</div>
 
-			<div style={{ background: '#07080c', borderLeft: '1px solid var(--border-color)', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-				<div style={{ position: 'relative', borderRadius: '0.85rem', overflow: 'hidden', background: '#000', aspectRatio: '4/3', border: `2px solid ${faceStatus === 'locked' ? '#10b981' : faceStatus === 'deviation' ? '#ef4444' : faceStatus === 'multiple_faces' ? '#a855f7' : faceStatus === 'phone_detected' ? '#f59e0b' : 'rgba(148,163,184,0.45)'}` }}>
-					<video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
-					<canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', transform: 'scaleX(-1)' }} />
-					{cameraReady && (
-						<div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(0,0,0,0.65)', padding: '0.2rem 0.5rem', borderRadius: '0.25rem' }}>
-							<span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', animation: 'pulseStatus 1.5s infinite' }} />
-							<span style={{ fontSize: '0.6rem', color: '#fca5a5', fontWeight: 700, letterSpacing: '0.06em' }}>REC</span>
-						</div>
+			<div className="interview-bottom">
+				<p style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: isListening ? '#6ee7b7' : 'rgba(103,232,249,0.9)', margin: '0 0 0.4rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+					{isSpeaking && (
+						<span style={{ display: 'inline-flex', gap: 2, height: 12, alignItems: 'flex-end' }}>
+							{[0, 1, 2].map(i => (
+								<span key={i} style={{ width: 3, height: 10, background: '#67e8f9', borderRadius: 1, animation: `waveSpeak 0.7s ease-in-out ${i * 0.12}s infinite` }} />
+							))}
+						</span>
 					)}
-					<div style={{ position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)', background: faceStatus === 'locked' ? 'rgba(16,185,129,0.9)' : 'rgba(0,0,0,0.7)', padding: '0.28rem 0.7rem', borderRadius: '999px', fontSize: '0.68rem', fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>
-						{STATUS_COPY[faceStatus]}
-					</div>
-				</div>
-				<p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.45 }}>
-					Stay in frame. This session is recorded. Looking away, a second person, or leaving the tab is logged for the hiring team.
-					{tabSwitchCount > 0 ? ` Tab switches: ${tabSwitchCount}.` : ''}
-					{(arAlerts.multipleFaces > 0 || arAlerts.phone > 0) ? ' Integrity flags were raised.' : ''}
+					{statusLine}
+					{onIntro ? ' · Introduction' : ` · ${currentIdx + 1} of ${questions.length}`}
 				</p>
+				<h1 className="interview-q">{questionText}</h1>
+				{transcript ? (
+					<p className="interview-caption">{transcript}</p>
+				) : isListening ? (
+					<p className="interview-caption" style={{ color: 'rgba(255,255,255,0.45)' }}>Speak naturally. Your words appear here.</p>
+				) : null}
+				<div style={{ display: 'flex', gap: '0.55rem', flexWrap: 'wrap' }}>
+					<button className="btn btn-secondary" style={{ minWidth: '7.5rem' }} onClick={() => onIntro ? speakGreeting(true) : speakQuestion(currentIdx, true)} disabled={isSpeaking}>
+						Repeat
+					</button>
+					<button className="btn btn-primary" style={{ minWidth: '8.5rem' }} onClick={saveAndNext} disabled={isSpeaking}>
+						{onIntro || currentIdx < questions.length - 1 ? 'Next' : 'Finish'}
+					</button>
+				</div>
 			</div>
 		</div>
 	);

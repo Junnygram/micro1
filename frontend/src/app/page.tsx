@@ -39,6 +39,7 @@ export default function LandingPage() {
 				<div className="landing-nav-links">
 					<a href="#how">Product</a>
 					<a href="#features">Platform</a>
+					<Link href="/benchmark">Benchmark</Link>
 					<Link href="/report/riveradevops">Sample report</Link>
 				</div>
 				<div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
