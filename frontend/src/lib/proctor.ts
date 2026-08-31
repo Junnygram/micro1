@@ -34,8 +34,8 @@ const RIGHT_CHEEK = 454;
 
 // Laptop webcams sit below eye line. A tight lock (0.03) marks a normal
 // seated pose as “looking away.” Only flag a clear head turn.
-const NOSE_AWAY = 0.16;
-const IRIS_AWAY = 0.22;
+const NOSE_AWAY = 0.12;
+const IRIS_AWAY = 0.16;
 
 function has(lms: Landmark[], i: number) {
 	return i < lms.length && Number.isFinite(lms[i]?.x);

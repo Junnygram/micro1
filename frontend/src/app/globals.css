@@ -795,84 +795,39 @@ body {
   transition: height 80ms linear, opacity 80ms linear;
 }
 
-/* Cinematic interview stage — candidate is the product */
-.interview-stage {
-  position: relative;
+/* Contained interview room — video is a card, not the whole screen */
+.interview-room {
   min-height: 100vh;
-  background: #050608;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 1.25rem 1.25rem 2rem;
+}
+.interview-room-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+.interview-room-video {
+  position: relative;
+  border-radius: 1rem;
   overflow: hidden;
+  background: #000;
+  aspect-ratio: 16 / 10;
+  border: 2px solid rgba(148, 163, 184, 0.35);
 }
-.interview-stage-feed {
-  position: absolute;
-  inset: 0;
-}
-.interview-stage-feed video,
-.interview-stage-feed canvas {
+.interview-room-video.is-ok { border-color: #10b981; }
+.interview-room-video.is-warn { border-color: #ef4444; }
+.interview-room-video video,
+.interview-room-video canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   pointer-events: none;
-}
-.interview-vignette {
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(180deg, rgba(5, 6, 8, 0.55) 0%, transparent 18%, transparent 58%, rgba(5, 6, 8, 0.88) 100%);
-  pointer-events: none;
-}
-.interview-top {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1.1rem 1.35rem;
-  gap: 1rem;
-}
-.interview-dots {
-  display: flex;
-  gap: 0.4rem;
-}
-.interview-dots i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.22);
-  display: block;
-}
-.interview-dots i.on {
-  background: #67e8f9;
-  box-shadow: 0 0 8px rgba(103, 232, 249, 0.55);
-}
-.interview-bottom {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 2;
-  padding: 0 1.5rem 1.4rem;
-  max-width: 860px;
-}
-.interview-q {
-  font-size: clamp(1.25rem, 2.4vw, 1.85rem);
-  font-weight: 750;
-  line-height: 1.3;
-  color: #fff;
-  margin: 0 0 0.75rem;
-  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.65);
-}
-.interview-caption {
-  font-size: 0.95rem;
-  line-height: 1.5;
-  color: rgba(248, 250, 252, 0.88);
-  margin: 0 0 1rem;
-  max-height: 4.6em;
-  overflow: hidden;
 }
 .interview-pill {
   display: inline-flex;
@@ -885,11 +840,6 @@ body {
   letter-spacing: 0.04em;
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
-  backdrop-filter: blur(8px);
-}
-@keyframes waveSpeak {
-  0%, 100% { transform: scaleY(0.4); }
-  50% { transform: scaleY(1); }
 }
 
 /* Admin stats grid */

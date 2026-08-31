@@ -148,7 +148,7 @@ export default function InterviewPage() {
 			pendingFaceRef.current = { status: next, since: Date.now() };
 			return;
 		}
-		if (Date.now() - pendingFaceRef.current.since >= 1400) {
+		if (Date.now() - pendingFaceRef.current.since >= 600) {
 			setFaceStatus(next);
 		}
 	};
@@ -651,13 +651,19 @@ export default function InterviewPage() {
 				const vision = await import('@mediapipe/tasks-vision');
 				const filesetResolver = await vision.FilesetResolver.forVisionTasks('/wasm');
 				const modelPath = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
-				const landmarker = await vision.FaceLandmarker.createFromOptions(filesetResolver, {
-					baseOptions: { modelAssetPath: modelPath, delegate: 'GPU' },
+				const make = (delegate: 'GPU' | 'CPU') => vision.FaceLandmarker.createFromOptions(filesetResolver, {
+					baseOptions: { modelAssetPath: modelPath, delegate },
 					runningMode: 'VIDEO',
 					numFaces: 3,
 					outputFaceBlendshapes: false,
 					outputFacialTransformationMatrixes: true,
 				});
+				let landmarker;
+				try {
+					landmarker = await make('GPU');
+				} catch {
+					landmarker = await make('CPU');
+				}
 				faceLandmarkerRef.current = landmarker;
 				runARLoop();
 			} catch (e) {
@@ -711,6 +717,10 @@ export default function InterviewPage() {
 				rekogHoldUntilRef.current = Date.now() + 6000;
 				setFaceStatus('multiple_faces');
 				setArAlerts(a => ({ ...a, multipleFaces: a.multipleFaces + 1 }));
+			} else if (data.verdict === 'gaze_away' || data.event_type === 'look_away') {
+				rekogHoldUntilRef.current = Date.now() + 2500;
+				setFaceStatus(data.verdict === 'no_face' ? 'no_face' : 'deviation');
+				postProctorEvent('look_away', 0, data.details || 'Looked away from camera');
 			}
 		} catch { /* transient network — next tick retries */ } finally {
 			rekogInFlightRef.current = false;
@@ -719,54 +729,70 @@ export default function InterviewPage() {
 
 	const runARLoop = () => {
 		const detect = () => {
-			if (!activeRef.current || !videoRef.current || !faceLandmarkerRef.current) return;
+			if (!activeRef.current) return;
+			if (!videoRef.current || !faceLandmarkerRef.current) {
+				animFrameRef.current = requestAnimationFrame(detect);
+				return;
+			}
 			const video = videoRef.current;
 			if (video.readyState < 2) { animFrameRef.current = requestAnimationFrame(detect); return; }
 			try {
 				const results = faceLandmarkerRef.current.detectForVideo(video, performance.now());
 				const canvas = canvasRef.current;
 				const ctx = canvas?.getContext('2d');
-				if (canvas && ctx) {
-					canvas.width = video.videoWidth;
-					canvas.height = video.videoHeight;
-					ctx.clearRect(0, 0, canvas.width, canvas.height);
-					if (results.faceLandmarks?.length > 0) {
-						const evaled = evaluateFaces(results.faceLandmarks);
-						const faceCount = evaled.faceCount;
-						const holdingRekog = Date.now() < rekogHoldUntilRef.current;
-						if (!holdingRekog) applyFaceStatus(evaled.status);
+				if (results.faceLandmarks?.length > 0) {
+					const evaled = evaluateFaces(results.faceLandmarks);
+					const faceCount = evaled.faceCount;
+					const holdingRekog = Date.now() < rekogHoldUntilRef.current;
+					if (!holdingRekog) applyFaceStatus(evaled.status);
 
-						if (evaled.status === 'multiple_faces') {
-							const now = Date.now();
-							if (now - lastMultiFacePostRef.current > 8000) {
-								lastMultiFacePostRef.current = now;
-								setArAlerts(a => ({ ...a, multipleFaces: a.multipleFaces + 1 }));
-								postProctorEvent('multiple_faces', 0, `${faceCount} faces in frame — possible coaching`);
-							}
+					if (evaled.status === 'multiple_faces') {
+						const now = Date.now();
+						if (now - lastMultiFacePostRef.current > 8000) {
+							lastMultiFacePostRef.current = now;
+							setArAlerts(a => ({ ...a, multipleFaces: a.multipleFaces + 1 }));
+							postProctorEvent('multiple_faces', 0, `${faceCount} faces in frame — possible coaching`);
 						}
+					}
 
-						if (evaled.lookingAway || evaled.status === 'no_face') {
-							if (!lookAwayStartRef.current) lookAwayStartRef.current = Date.now();
-						} else if (lookAwayStartRef.current) {
-							const dur = Math.round((Date.now() - lookAwayStartRef.current) / 1000);
-							if (dur > 2) postProctorEvent('look_away', dur, `Looked away for ${dur}s`);
-							lookAwayStartRef.current = null;
-						}
-
-						const alertStatus = evaled.status === 'deviation' || evaled.status === 'multiple_faces' || evaled.status === 'phone_detected';
-						if (alertStatus) {
-							ctx.strokeStyle = evaled.status === 'multiple_faces' ? '#c084fc' : evaled.status === 'phone_detected' ? '#f59e0b' : '#ef4444';
-							ctx.lineWidth = Math.max(6, canvas.width * 0.007);
-							ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20);
-						}
-					} else {
-						if (Date.now() >= rekogHoldUntilRef.current) applyFaceStatus('no_face');
+					if (evaled.lookingAway || evaled.status === 'no_face') {
 						if (!lookAwayStartRef.current) lookAwayStartRef.current = Date.now();
-						else if (Date.now() - lookAwayStartRef.current > 2500) {
-							const dur = Math.round((Date.now() - lookAwayStartRef.current) / 1000);
-							postProctorEvent('look_away', dur, 'No face in camera');
-							lookAwayStartRef.current = Date.now();
-						}
+					} else if (lookAwayStartRef.current) {
+						const dur = Math.round((Date.now() - lookAwayStartRef.current) / 1000);
+						if (dur > 2) postProctorEvent('look_away', dur, `Looked away for ${dur}s`);
+						lookAwayStartRef.current = null;
+					}
+
+					if (canvas && ctx) {
+						canvas.width = video.videoWidth;
+						canvas.height = video.videoHeight;
+						ctx.clearRect(0, 0, canvas.width, canvas.height);
+						const lms = results.faceLandmarks[0];
+						const w = canvas.width;
+						const h = canvas.height;
+						const xs = lms.map((l: { x: number }) => l.x * w);
+						const ys = lms.map((l: { y: number }) => l.y * h);
+						const bx = Math.min(...xs) - 12;
+						const by = Math.min(...ys) - 12;
+						const bw = Math.max(...xs) - bx + 12;
+						const bh = Math.max(...ys) - by + 12;
+						const alertStatus = evaled.status === 'deviation' || evaled.status === 'multiple_faces' || evaled.status === 'phone_detected';
+						ctx.strokeStyle = alertStatus ? (evaled.status === 'multiple_faces' ? '#c084fc' : evaled.status === 'phone_detected' ? '#f59e0b' : '#ef4444') : '#10b981';
+						ctx.lineWidth = 3;
+						ctx.strokeRect(bx, by, bw, bh);
+					}
+				} else {
+					if (Date.now() >= rekogHoldUntilRef.current) applyFaceStatus('no_face');
+					if (!lookAwayStartRef.current) lookAwayStartRef.current = Date.now();
+					else if (Date.now() - lookAwayStartRef.current > 2500) {
+						const dur = Math.round((Date.now() - lookAwayStartRef.current) / 1000);
+						postProctorEvent('look_away', dur, 'No face in camera');
+						lookAwayStartRef.current = Date.now();
+					}
+					if (canvas && ctx) {
+						canvas.width = video.videoWidth;
+						canvas.height = video.videoHeight;
+						ctx.clearRect(0, 0, canvas.width, canvas.height);
 					}
 				}
 			} catch { /* frame skip */ }
@@ -929,37 +955,28 @@ export default function InterviewPage() {
 
 	const totalSteps = questions.length + 1;
 	const stepNum = onIntro ? 1 : currentIdx + 2;
-	const statusLine = isSpeaking ? 'Interviewer speaking' : isListening ? (awaitingConfirm ? 'Say you are done when ready' : 'Your turn') : 'Ready';
+	const statusLine = isSpeaking ? 'Interviewer speaking' : isListening ? (awaitingConfirm ? 'Say you are done when ready' : 'Your turn — speak your answer') : 'Ready';
 	const questionText = onIntro ? 'Hello, how are you doing? Can you tell me about yourself?' : (currentQ?.question || '');
 	const faceOk = faceStatus === 'locked';
 	const faceWarn = faceStatus === 'deviation' || faceStatus === 'multiple_faces' || faceStatus === 'phone_detected';
+	const lastQuestion = !onIntro && currentIdx >= questions.length - 1;
 
 	return (
-		<div className="interview-stage">
-			<div className="interview-stage-feed">
-				<video ref={videoRef} autoPlay playsInline muted style={{ transform: 'scaleX(-1)' }} />
-				<canvas ref={canvasRef} style={{ transform: 'scaleX(-1)' }} />
-				<div className="interview-vignette" />
-			</div>
-
-			<div className="interview-top">
+		<div className="interview-room">
+			<div className="interview-room-head">
 				<div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
 					<div className="logo-icon" style={{ width: '1.7rem', height: '1.7rem', fontSize: '0.6rem' }}>ZS</div>
 					<div>
-						<p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 700 }}>{candidate?.name || 'Interview'}</p>
-						<p style={{ margin: 0, fontSize: '0.68rem', color: 'rgba(255,255,255,0.55)' }}>{candidate?.role || 'Live session'}</p>
+						<p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700 }}>{candidate?.name || 'Interview'}</p>
+						<p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>{candidate?.role || 'Live session'}</p>
 					</div>
 				</div>
-				<div className="interview-dots" aria-label={`Step ${stepNum} of ${totalSteps}`}>
-					{Array.from({ length: totalSteps }).map((_, i) => (
-						<i key={i} className={i < stepNum ? 'on' : undefined} />
-					))}
-				</div>
-				<div style={{ display: 'flex', gap: '0.45rem', alignItems: 'center' }}>
+				<div style={{ display: 'flex', gap: '0.45rem', alignItems: 'center', flexWrap: 'wrap' }}>
+					<span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{onIntro ? 'Introduction' : `Question ${currentIdx + 1} of ${questions.length}`}</span>
 					{cameraReady && (
 						<span className="interview-pill">
-							<span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', animation: 'pulseStatus 1.5s infinite' }} />
-							REC
+							<span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', animation: 'pulseStatus 1.5s infinite', display: 'inline-block' }} />
+							{' '}REC
 						</span>
 					)}
 					<span className="interview-pill" style={{ background: faceOk ? 'rgba(16,185,129,0.85)' : faceWarn ? 'rgba(239,68,68,0.85)' : 'rgba(0,0,0,0.55)' }}>
@@ -968,32 +985,37 @@ export default function InterviewPage() {
 				</div>
 			</div>
 
-			<div className="interview-bottom">
-				<p style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: isListening ? '#6ee7b7' : 'rgba(103,232,249,0.9)', margin: '0 0 0.4rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-					{isSpeaking && (
-						<span style={{ display: 'inline-flex', gap: 2, height: 12, alignItems: 'flex-end' }}>
-							{[0, 1, 2].map(i => (
-								<span key={i} style={{ width: 3, height: 10, background: '#67e8f9', borderRadius: 1, animation: `waveSpeak 0.7s ease-in-out ${i * 0.12}s infinite` }} />
-							))}
-						</span>
-					)}
+			<div className={`interview-room-video ${faceOk ? 'is-ok' : ''} ${faceWarn ? 'is-warn' : ''}`}>
+				<video ref={videoRef} autoPlay playsInline muted style={{ transform: 'scaleX(-1)' }} />
+				<canvas ref={canvasRef} style={{ transform: 'scaleX(-1)' }} />
+				<div style={{ position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 2 }}>
+					<span className="interview-pill" style={{ background: faceOk ? 'rgba(16,185,129,0.9)' : faceWarn ? 'rgba(239,68,68,0.9)' : 'rgba(0,0,0,0.7)' }}>
+						{STATUS_COPY[faceStatus]}
+					</span>
+				</div>
+			</div>
+
+			<div style={{ marginTop: '1.15rem' }}>
+				<p style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: isListening ? '#6ee7b7' : 'var(--color-accent)', margin: '0 0 0.45rem' }}>
 					{statusLine}
-					{onIntro ? ' · Introduction' : ` · ${currentIdx + 1} of ${questions.length}`}
 				</p>
-				<h1 className="interview-q">{questionText}</h1>
-				{transcript ? (
-					<p className="interview-caption">{transcript}</p>
-				) : isListening ? (
-					<p className="interview-caption" style={{ color: 'rgba(255,255,255,0.45)' }}>Speak naturally. Your words appear here.</p>
-				) : null}
-				<div style={{ display: 'flex', gap: '0.55rem', flexWrap: 'wrap' }}>
-					<button className="btn btn-secondary" style={{ minWidth: '7.5rem' }} onClick={() => onIntro ? speakGreeting(true) : speakQuestion(currentIdx, true)} disabled={isSpeaking}>
+				<h1 style={{ fontSize: '1.35rem', fontWeight: 800, lineHeight: 1.35, margin: '0 0 0.75rem' }}>{questionText}</h1>
+				<div style={{ padding: '1rem 1.1rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '0.75rem', minHeight: '4.5rem', marginBottom: '1rem' }}>
+					<p style={{ fontSize: '0.95rem', color: transcript ? 'var(--text-primary)' : 'var(--text-muted)', lineHeight: 1.55, margin: 0 }}>
+						{transcript || (isSpeaking ? 'Listen…' : 'Your answer appears here as you speak.')}
+					</p>
+				</div>
+				<div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap', alignItems: 'center' }}>
+					<button className="btn btn-secondary" onClick={() => onIntro ? speakGreeting(true) : speakQuestion(currentIdx, true)} disabled={isSpeaking}>
 						Repeat
 					</button>
-					<button className="btn btn-primary" style={{ minWidth: '8.5rem' }} onClick={saveAndNext} disabled={isSpeaking}>
-						{onIntro || currentIdx < questions.length - 1 ? 'Next' : 'Finish'}
-					</button>
+					{lastQuestion && (
+						<button className="btn btn-primary" onClick={saveAndNext} disabled={isSpeaking}>Finish interview</button>
+					)}
 				</div>
+				<p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.85rem 0 0' }}>
+					The interviewer moves on when you say “next question” or “I’m done.” Stay in frame.
+				</p>
 			</div>
 		</div>
 	);
