@@ -717,7 +717,7 @@ export default function InterviewPage() {
 				rekogHoldUntilRef.current = Date.now() + 10000;
 				setFaceStatus('phone_detected');
 				setArAlerts(a => ({ ...a, phone: a.phone + 1 }));
-				postProctorEvent('phone_detected', 0, data.details || 'Phone detected in frame');
+				postProctorEvent('phone_detected', 0, data.details || 'Unauthorized device in frame');
 			} else if (data.verdict === 'multiple_faces') {
 				rekogHoldUntilRef.current = Date.now() + 6000;
 				setFaceStatus('multiple_faces');
@@ -995,7 +995,7 @@ export default function InterviewPage() {
 				<canvas ref={canvasRef} style={{ transform: 'scaleX(-1)' }} />
 				{faceStatus === 'phone_detected' && (
 					<div style={{ position: 'absolute', inset: 0, zIndex: 3, background: 'rgba(120, 53, 15, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.25rem', textAlign: 'center' }}>
-						<p style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800, color: '#fff' }}>Phone detected — this is logged as cheating</p>
+						<p style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800, color: '#fff' }}>Device detected — this is logged as cheating</p>
 					</div>
 				)}
 				<div style={{ position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 2 }}>
@@ -1027,7 +1027,7 @@ export default function InterviewPage() {
 					)}
 				</div>
 				<p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.85rem 0 0' }}>
-					The interviewer moves on when you say “I’m done” or “next question.” Put the phone down — it is flagged.
+					The interviewer moves on when you say “I’m done” or “next question.” A second device in frame is flagged.
 				</p>
 			</div>
 		</div>

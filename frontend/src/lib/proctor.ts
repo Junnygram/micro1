@@ -114,5 +114,5 @@ export const STATUS_COPY: Record<FaceStatus, string> = {
 	locked: 'In frame',
 	deviation: 'Looking away',
 	multiple_faces: 'Second person',
-	phone_detected: 'Phone detected',
+	phone_detected: 'Device in frame',
 };

@@ -35,13 +35,33 @@ func TestCleanFramePasses(t *testing.T) {
 	}
 }
 
-func TestLaptopIsNotACheatDevice(t *testing.T) {
+func TestHeldElectronicsIsFlagged(t *testing.T) {
 	got := buildAnalysis(
-		[]rtypes.Label{label("Person", 99.0), label("Laptop", 97.0), label("Computer", 91.0)},
+		[]rtypes.Label{label("Person", 99.0), label("Electronics", 72.0)},
+		[]rtypes.FaceDetail{face(0, 0)},
+	)
+	if got.Verdict != "device_detected" {
+		t.Fatalf("expected device_detected for Electronics, got %q", got.Verdict)
+	}
+}
+
+func TestSecondComputerIsFlagged(t *testing.T) {
+	got := buildAnalysis(
+		[]rtypes.Label{label("Person", 99.0), label("Laptop", 88.0)},
+		[]rtypes.FaceDetail{face(0, 0)},
+	)
+	if got.Verdict != "device_detected" {
+		t.Fatalf("expected device_detected for a laptop in frame, got %q", got.Verdict)
+	}
+}
+
+func TestHeadphonesAreNotACheatDevice(t *testing.T) {
+	got := buildAnalysis(
+		[]rtypes.Label{label("Person", 99.0), label("Headphones", 94.0)},
 		[]rtypes.FaceDetail{face(0, 0)},
 	)
 	if got.Verdict == "device_detected" {
-		t.Fatalf("candidate laptop must not flag cheating, got %q (%s)", got.Verdict, got.Details)
+		t.Fatalf("headphones must not flag cheating, got %q", got.Verdict)
 	}
 }
 

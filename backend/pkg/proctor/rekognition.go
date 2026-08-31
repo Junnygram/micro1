@@ -28,20 +28,33 @@ const (
 	MaxPitchDegrees    = 38.0
 )
 
-// deviceLabels are Rekognition names for a phone or tablet in frame.
-// Laptop / monitor / screen are the candidate's own machine — do not flag those.
+// deviceLabels are unauthorized objects in the webcam: a second phone, tablet,
+// computer, or generic electronics Rekognition returns when a gadget is held up.
+// Keyboard / mouse / headphones are the interview setup, not cheating.
 var deviceLabels = map[string]bool{
-	"mobile phone":        true,
-	"cell phone":          true,
-	"phone":               true,
-	"telephone":           true,
-	"iphone":              true,
-	"smartphone":          true,
-	"cellular telephone":  true,
-	"tablet computer":     true,
-	"tablet":              true,
-	"handset":             true,
-	"portable computer":   true,
+	"mobile phone":       true,
+	"cell phone":         true,
+	"phone":              true,
+	"telephone":          true,
+	"iphone":             true,
+	"smartphone":         true,
+	"cellular telephone": true,
+	"tablet computer":    true,
+	"tablet":             true,
+	"ipad":               true,
+	"handset":            true,
+	"portable computer":  true,
+	"electronics":        true,
+	"computer":           true,
+	"laptop":             true,
+	"monitor":            true,
+	"screen":             true,
+	"television":         true,
+	"tv":                 true,
+	"pc":                 true,
+	"desktop computer":   true,
+	"computer hardware":  true,
+	"hardware":           true,
 }
 
 // referenceLabels indicate notes or printed material held up during the interview.
@@ -182,12 +195,12 @@ func buildAnalysis(labels []rtypes.Label, faces []rtypes.FaceDetail) *Analysis {
 		det := Detection{Label: display, Confidence: conf}
 		a.Labels = append(a.Labels, det)
 		for _, key := range names {
-			if ignoreComputerLabel(key) {
+			if ignoreAmbientGear(key) {
 				continue
 			}
-			phone := deviceLabels[key] || strings.Contains(key, "iphone") || (strings.Contains(key, "phone") && !strings.Contains(key, "headphone") && !strings.Contains(key, "microphone"))
+			device := deviceLabels[key] || isHeldGadget(key)
 			notes := referenceLabels[key]
-			if phone && conf >= MinPhoneConfidence {
+			if device && conf >= MinPhoneConfidence {
 				a.Flagged = append(a.Flagged, det)
 				break
 			}
@@ -299,16 +312,22 @@ func labelNames(l rtypes.Label) []string {
 	return names
 }
 
-func ignoreComputerLabel(key string) bool {
-	return strings.Contains(key, "laptop") ||
-		strings.Contains(key, "monitor") ||
-		key == "screen" ||
-		key == "computer" ||
-		key == "pc" ||
-		key == "desktop computer" ||
-		key == "computer hardware" ||
-		key == "keyboard" ||
+func ignoreAmbientGear(key string) bool {
+	return key == "keyboard" ||
 		key == "mouse" ||
-		key == "television" ||
-		key == "tv"
+		strings.Contains(key, "headphone") ||
+		strings.Contains(key, "microphone") ||
+		strings.Contains(key, "webcam")
+}
+
+func isHeldGadget(key string) bool {
+	if strings.Contains(key, "headphone") || strings.Contains(key, "microphone") || strings.Contains(key, "webcam") {
+		return false
+	}
+	return strings.Contains(key, "phone") ||
+		strings.Contains(key, "iphone") ||
+		strings.Contains(key, "tablet") ||
+		strings.Contains(key, "ipad") ||
+		strings.Contains(key, "laptop") ||
+		strings.Contains(key, "computer")
 }
